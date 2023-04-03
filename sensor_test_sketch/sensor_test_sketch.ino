@@ -5,109 +5,122 @@
 
 #define SEALEVELPRESSURE_HPA (1013.25)
 
-SensirionI2CScd4x scd41;
+/*
+  Vraag temp, pressure en humidity op van BME 
+  en format als 5 bytes in een array meegegeven als parameter.
+
+  | Byte nr | Name            | Sensor range     | On Node MCU | Reformat |
+  | ------- | --------------- | ---------------- | ----------- | -------- |
+  | 0-1     | Temperature     | -40 tot 85°C     | +40         | -40      | - BME280
+  | 2-4     | Pressure        | 300 tot 1100 hPa | n/a         | n/a      | - BME280
+  | 5-6     | Humidity        | 0 tot 100%       | n/a         | n/a      | - BME280
+  | 7-8     | Temperature     | -10 tot 60°C     | +10         | -10      | - SCD41
+  | 9-10    | co2             | 400 tot 5000 ppm | n/a         | n/a      | - SCD41
+  | 11-12   | Humidity        | 0 tot 95 %       | n/a         | n/a      | - SCD41
+*/
+
+SensirionI2CScd4x scd4x;
 Adafruit_BME280 bme;
 
-bool isDataReady = false;
-uint16_t serialnr0, serialnr1, serialnr2, error;
-char errorMessage[256];
-uint16_t co2 = 0;
-float temperature = 0.0f, humidity = 0.0f;
+uint16_t co2_scd = 0;
+float temp_bme = 0.0f, pres_bme = 0.0f, hum_bme = 0.0f, temp_scd = 0.0f, hum_scd = 0.0f;
+byte sensor_data[13];
+unsigned status;
 
 void setup() {
   Serial.begin(115200);
   while (!Serial) {};
-  
+
   Wire.begin();
   
-  scd41.begin(Wire, 0x62);
-  unsigned status;
+  scd4x.begin(Wire, 0x62);
   status = bme.begin(0x76, &Wire);
-  
-  if (!status) {
-    Serial.println("Could not find a valid BME280 sensor, check wiring, address, sensor ID!");
-    Serial.print("SensorID was: 0x"); Serial.println(bme.sensorID(),16);
-    Serial.print("        ID of 0xFF probably means a bad address, a BMP 180 or BMP 085\n");
-    Serial.print("        ID of 0x56-0x58 represents a BMP 280,\n");
-    Serial.print("        ID of 0x60 represents a BME 280.\n");
-    Serial.print("        ID of 0x61 represents a BME 680.\n");
-    while (1) delay(10);
-  }
-  
 }
 
 void loop() {
-  delay(1000);
-  error = scd41.getSerialNumber(serialnr0, serialnr1, serialnr2);
+  measureSCD();
+  if (!status) {
+    temp_bme = 0xFFFF;
+    pres_bme = 0xFFFFFF;
+    hum_bme = 0xFFFF;
+  } else {
+    measureBME();
+  }
+  formatData();
+
+  for (int i = 0; i < 13; i++) {
+    Serial.println(sensor_data[i], HEX);
+  }
+}
+
+void measureSCD() {
+  bool isDataReady = false;
+  uint16_t serialnr0, serialnr1, serialnr2, error;
+  
+  error = scd4x.getSerialNumber(serialnr0, serialnr1, serialnr2);
   if (error) {
-    Serial.print("Error trying to execute getSerialNumber(): ");
-    errorToString(error, errorMessage, 256);
-    Serial.println(errorMessage);
-    delay(20);
-    return; // return to top of void loop()
+    temp_scd = 0xFFFF;
+    co2_scd = 0xFFFF;
+    hum_scd = 0xFFFF;
+    return;
+  }
+  error = scd4x.measureSingleShot();
+  if (error) {
+    temp_scd = 0xFFFF;
+    co2_scd = 0xFFFF;
+    hum_scd = 0xFFFF;
+    return;
   }
   uint8_t i = 0;
   do {
-    Serial.println("Waiting for first measurement... (5 sec)");
-    error = scd41.measureSingleShot();
+    error = scd4x.getDataReadyFlag(isDataReady);
     if (error) {
-      Serial.print("Error trying to execute measureSingleShot(): ");
-      errorToString(error, errorMessage, 256);
-      Serial.println(errorMessage);
+      temp_scd = 0xFFFF;
+      co2_scd = 0xFFFF;
+      hum_scd = 0xFFFF;
+      return;
     }
     i++;
-  } while (error && i < 5);
-  
-  if (i >= 5) { return; }
-
-  i = 0;
-  do {
-    error = scd41.getDataReadyFlag(isDataReady);
-    if (error) {
-      Serial.print("Error trying to execute getDataReadyFlag(): ");
-      errorToString(error, errorMessage, 256);
-      Serial.println(errorMessage);  
-    }
-    i++;
-  } while (error && i < 5);
-
-  if (i >= 5) { return; };
-
-  error = scd41.readMeasurement(co2, temperature, humidity);
+  } while ( (!isDataReady) || (error && i < 5) );
+  error = scd4x.readMeasurement(co2_scd, temp_scd, hum_scd);
   if (error) {
-    Serial.print("Error trying to execute readMeasurement(): ");
-    errorToString(error, errorMessage, 256);
-    Serial.println(errorMessage);
-  } else if (co2 == 0) {
-    Serial.println("Invalid sample detected, skipping.");
-  } else {
-    Serial.print("Co2:");
-    Serial.print(co2);
-    Serial.print("\t");
-    Serial.print("Temperature:");
-    Serial.print(temperature);
-    Serial.print("\t");
-    Serial.print("Humidity:");
-    Serial.println(humidity);
+    temp_scd = 0xFFFF;
+    co2_scd = 0xFFFF;
+    hum_scd = 0xFFFF;
   }
+}
 
-  Serial.print("Temperature = ");
-  Serial.print(bme.readTemperature());
-  Serial.println(" °C");
+void measureBME() {
+  temp_bme = bme.readTemperature();
+  pres_bme = bme.readPressure() / 100.0F;
+  hum_bme = bme.readHumidity();
+  if (isnan(temp_bme) || isnan(pres_bme) || isnan(hum_bme)) {
+    temp_bme = 0xFFFF;
+    pres_bme = 0xFFFF;
+    hum_bme = 0xFFFF;
+  }
+}
 
-  Serial.print("Pressure = ");
+void formatData() {
+  uint16_t bme_temp = (temp_bme + 40) * 100;
+  uint32_t bme_pres = pres_bme * 100;
+  uint16_t bme_hum = hum_bme * 100;
 
-  Serial.print(bme.readPressure() / 100.0F);
-  Serial.println(" hPa");
+  uint16_t scd_temp = (temp_scd + 10) * 100;
+  uint16_t scd_hum = hum_scd * 100;
+  uint16_t scd_co2 = co2_scd;
 
-  Serial.print("Approx. Altitude = ");
-  Serial.print(bme.readAltitude(SEALEVELPRESSURE_HPA));
-  Serial.println(" m");
-
-  Serial.print("Humidity = ");
-  Serial.print(bme.readHumidity());
-  Serial.println(" %");
-
-  Serial.println();
-    
+  sensor_data[0]  = (bme_temp >> 8) & 0xFF;
+  sensor_data[1]  = bme_temp & 0xFF;
+  sensor_data[2]  = (bme_pres >> 16) & 0xFF;
+  sensor_data[3]  = (bme_pres >> 8) & 0xFF;
+  sensor_data[4]  = bme_pres & 0xFF;
+  sensor_data[5]  = (bme_hum >> 8) & 0xFF;
+  sensor_data[6]  = bme_hum & 0xFF;
+  sensor_data[7]  = (scd_temp >> 8) & 0xFF;
+  sensor_data[8]  = scd_temp & 0xFF;
+  sensor_data[9]  = (scd_co2 >> 8) & 0xFF;
+  sensor_data[10] = scd_co2 & 0xFF;
+  sensor_data[11] = (scd_hum >> 8) & 0xFF;
+  sensor_data[12] = scd_hum & 0xFF;
 }
