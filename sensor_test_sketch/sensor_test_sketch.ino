@@ -2,6 +2,15 @@
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BME280.h>
 #include <Wire.h>
+#include <rn2xx3.h>
+
+//LoRa variables
+const char *appEui = "0000000000000000";
+const char *appKey = "0BCEC12E4AEFE30F4E336184C1263975";
+
+rn2xx3 myLora(Serial2);
+double last_send_time = 0;
+double interval = 60000; // one minute
 
 /*
   Vraag temp, pressure en humidity op van BME 
@@ -33,12 +42,25 @@ void setup() {
   
   scd4x.begin(Wire, 0x62);
   status = bme.begin();
+
   
   if (status)
     bme.setSampling(Adafruit_BME280::sensor_mode::MODE_FORCED);
 }
 
 void loop() {
+  //LoRa
+  Serial.begin(57600); //serial port to computer
+  Serial2.begin(57600); //serial port to radio
+  Serial.println("Startup");
+
+  initialize_radio();
+
+  //transmit a startup message
+  myLora.tx("TTN Mapper on TTN Enschede node");
+
+  delay(2000);
+
   measureSCD();
   if (!status) {
     temp_bme = 0xFFFF;
@@ -52,6 +74,20 @@ void loop() {
   for (int i = 0; i < 13; i++) {
     Serial.println(sensor_data[i], HEX);
   }
+
+  if (millis() - last_send_time >= interval)
+  {
+    last_send_time = millis();
+    Serial.println("TXing");
+    double start = millis();
+    //data = "ABCD_ABCD_ABCD_ABCD_ABCD_ABCD_ABCD_ABCD"
+    //byte data[5] = {0x0, 0x17,  0x4, 0x4C, 0x50};
+
+    myLora.txBytes(sensor_data, 13); 
+    //calculate duration of transmission function
+    //double transmission = millis() - start;
+    //Serial.println(transmission);
+  } 
 }
 
 void measureSCD() {
@@ -59,13 +95,6 @@ void measureSCD() {
   uint16_t serialnr0, serialnr1, serialnr2, error;
   
   error = scd4x.getSerialNumber(serialnr0, serialnr1, serialnr2);
-  if (error) {
-    temp_scd = 0xFFFF;
-    co2_scd = 0xFFFF;
-    hum_scd = 0xFFFF;
-    return;
-  }
-  error = scd4x.measureSingleShot();
   if (error) {
     temp_scd = 0xFFFF;
     co2_scd = 0xFFFF;
@@ -90,6 +119,7 @@ void measureSCD() {
     hum_scd = 0xFFFF;
   }
 }
+
 
 void measureBME() {
   bme.takeForcedMeasurement();
@@ -126,3 +156,60 @@ void formatData() {
   sensor_data[11] = (scd_hum >> 8) & 0xFF;
   sensor_data[12] = scd_hum & 0xFF;
 }
+
+void initialize_radio()
+{
+  //reset rn2483
+  Serial.println("resetting lora");
+  pinMode(PA10, OUTPUT);
+  digitalWrite(PA10, LOW);
+  delay(1000);
+  digitalWrite(PA10, HIGH);
+  Serial.println("done resetting lora")
+  ;
+  // print appKey en joinEUI in serial monitor
+  Serial.print("appKey: ");
+  Serial.println(appKey);
+  Serial.print("joinEUI: ");
+  Serial.println(appEui);
+  
+  delay(100); //wait for the RN2xx3's startup message
+  Serial2.flush();
+
+  //Autobaud the rn2483 module to 9600. The default would otherwise be 57600.
+  myLora.autobaud();
+
+  //check communication with radio
+  String hweui = myLora.hweui();
+  while(hweui.length() != 16)
+  {
+    Serial.println("Communication with RN2xx3 unsuccessful. Power cycle the board.");
+    Serial.println(hweui);
+    delay(10000);
+    hweui = myLora.hweui();
+  }
+
+  //print out the HWEUI so that we can register it via ttnctl
+  Serial.println("When using OTAA, register this DevEUI: ");
+  Serial.println(myLora.hweui());
+  Serial.println("RN2xx3 firmware version:");
+  Serial.println(myLora.sysver());
+
+  //configure your keys and join the network
+  Serial.println("Trying to join TTN");
+  bool join_result = false;
+
+
+  join_result = myLora.initOTAA(appEui, appKey);
+
+  // Loopt vast bij OTAA, uncomment voor ABP
+  while(!join_result)
+  {
+    Serial.println("Unable to join. Are your keys correct, and do you have TTN coverage?");
+    delay(30000); //delay a minute before retry
+    join_result = myLora.init();
+  }
+  Serial.println("Successfully joined TTN");
+  
+}
+
