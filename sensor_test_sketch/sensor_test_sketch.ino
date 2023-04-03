@@ -4,12 +4,6 @@
 #include <Wire.h>
 #include <rn2xx3.h>
 
-#define SEALEVELPRESSURE_HPA (1013.25)
-// edited by Jazzmin
-
-<<<<<<< Updated upstream
-SensirionI2CScd4x scd41;
-=======
 //LoRa variables
 const char *appEui = "0000000000000000";
 const char *appKey = "0BCEC12E4AEFE30F4E336184C1263975";
@@ -24,59 +18,37 @@ double interval = 60000; // one minute
 
   | Byte nr | Name            | Sensor range     | On Node MCU | Reformat |
   | ------- | --------------- | ---------------- | ----------- | -------- |
-  | 0-1     | Temperature     | -40 tot 85°C     | +40         | (x/100)-40 | - BME280
-  | 2-4     | Pressure        | 300 tot 1100 hPa | n/a         | n/a      | - BME280
-  | 5-6     | Humidity        | 0 tot 100%       | n/a         | n/a      | - BME280
-  | 7-8     | Temperature     | -10 tot 60°C     | +10         | -10      | - SCD41
-  | 9-10    | co2             | 400 tot 5000 ppm | n/a         | n/a      | - SCD41
-  | 11-12   | Humidity        | 0 tot 95 %       | n/a         | n/a      | - SCD41
+  | 0-1     | Temperature     | -40 tot 85°C     | +40 *100    | /100 -40 | - BME280
+  | 2-4     | Pressure        | 300 tot 1100 hPa | *100        | /100     | - BME280
+  | 5-6     | Humidity        | 0 tot 100%       | *100        | /100     | - BME280
+  | 7-8     | Temperature     | -10 tot 60°C     | +10 *100    | /100 -10 | - SCD41
+  | 9-10    | co2             | 400 tot 5000 ppm | *100        | /100     | - SCD41
+  | 11-12   | Humidity        | 0 tot 95 %       | *100        | /100     | - SCD41
 */
 
 SensirionI2CScd4x scd4x;
->>>>>>> Stashed changes
 Adafruit_BME280 bme;
 
-bool isDataReady = false;
-uint16_t serialnr0, serialnr1, serialnr2, error;
-char errorMessage[256];
-uint16_t co2 = 0;
-float temperature = 0.0f, humidity = 0.0f;
+uint16_t co2_scd = 0;
+float temp_bme = 0.0f, pres_bme = 0.0f, hum_bme = 0.0f, temp_scd = 0.0f, hum_scd = 0.0f;
+byte sensor_data[13];
+unsigned status;
 
-<<<<<<< Updated upstream
 void setup() {
   Serial.begin(115200);
   while (!Serial) {};
-  
-=======
 
-
-void setup() {
-  //initialise communication with sensors
->>>>>>> Stashed changes
   Wire.begin();
   
-  scd41.begin(Wire, 0x62);
-  unsigned status;
-  status = bme.begin(0x76, &Wire);
-<<<<<<< Updated upstream
+  scd4x.begin(Wire, 0x62);
+  status = bme.begin();
+
   
-  if (!status) {
-    Serial.println("Could not find a valid BME280 sensor, check wiring, address, sensor ID!");
-    Serial.print("SensorID was: 0x"); Serial.println(bme.sensorID(),16);
-    Serial.print("        ID of 0xFF probably means a bad address, a BMP 180 or BMP 085\n");
-    Serial.print("        ID of 0x56-0x58 represents a BMP 280,\n");
-    Serial.print("        ID of 0x60 represents a BME 280.\n");
-    Serial.print("        ID of 0x61 represents a BME 680.\n");
-    while (1) delay(10);
-  }
-  
+  if (status)
+    bme.setSampling(Adafruit_BME280::sensor_mode::MODE_FORCED);
 }
 
 void loop() {
-  delay(1000);
-  error = scd41.getSerialNumber(serialnr0, serialnr1, serialnr2);
-=======
-
   //LoRa
   Serial.begin(57600); //serial port to computer
   Serial2.begin(57600); //serial port to radio
@@ -88,9 +60,7 @@ void loop() {
   myLora.tx("TTN Mapper on TTN Enschede node");
 
   delay(2000);
-}
 
-void loop() {
   measureSCD();
   if (!status) {
     temp_bme = 0xFFFF;
@@ -125,83 +95,34 @@ void measureSCD() {
   uint16_t serialnr0, serialnr1, serialnr2, error;
   
   error = scd4x.getSerialNumber(serialnr0, serialnr1, serialnr2);
->>>>>>> Stashed changes
   if (error) {
-    Serial.print("Error trying to execute getSerialNumber(): ");
-    errorToString(error, errorMessage, 256);
-    Serial.println(errorMessage);
-    delay(20);
-    return; // return to top of void loop()
+    temp_scd = 0xFFFF;
+    co2_scd = 0xFFFF;
+    hum_scd = 0xFFFF;
+    return;
   }
   uint8_t i = 0;
   do {
-    Serial.println("Waiting for first measurement... (5 sec)");
-    error = scd41.measureSingleShot();
+    error = scd4x.getDataReadyFlag(isDataReady);
     if (error) {
-      Serial.print("Error trying to execute measureSingleShot(): ");
-      errorToString(error, errorMessage, 256);
-      Serial.println(errorMessage);
+      temp_scd = 0xFFFF;
+      co2_scd = 0xFFFF;
+      hum_scd = 0xFFFF;
+      return;
     }
     i++;
-  } while (error && i < 5);
-  
-  if (i >= 5) { return; }
-
-  i = 0;
-  do {
-    error = scd41.getDataReadyFlag(isDataReady);
-    if (error) {
-      Serial.print("Error trying to execute getDataReadyFlag(): ");
-      errorToString(error, errorMessage, 256);
-      Serial.println(errorMessage);  
-    }
-    i++;
-  } while (error && i < 5);
-
-  if (i >= 5) { return; };
-
-  error = scd41.readMeasurement(co2, temperature, humidity);
+  } while ( (!isDataReady) || (error && i < 5) );
+  error = scd4x.readMeasurement(co2_scd, temp_scd, hum_scd);
   if (error) {
-    Serial.print("Error trying to execute readMeasurement(): ");
-    errorToString(error, errorMessage, 256);
-    Serial.println(errorMessage);
-  } else if (co2 == 0) {
-    Serial.println("Invalid sample detected, skipping.");
-  } else {
-    Serial.print("Co2:");
-    Serial.print(co2);
-    Serial.print("\t");
-    Serial.print("Temperature:");
-    Serial.print(temperature);
-    Serial.print("\t");
-    Serial.print("Humidity:");
-    Serial.println(humidity);
+    temp_scd = 0xFFFF;
+    co2_scd = 0xFFFF;
+    hum_scd = 0xFFFF;
   }
-<<<<<<< Updated upstream
-
-  Serial.print("Temperature = ");
-  Serial.print(bme.readTemperature());
-  Serial.println(" °C");
-
-  Serial.print("Pressure = ");
-
-  Serial.print(bme.readPressure() / 100.0F);
-  Serial.println(" hPa");
-
-  Serial.print("Approx. Altitude = ");
-  Serial.print(bme.readAltitude(SEALEVELPRESSURE_HPA));
-  Serial.println(" m");
-
-  Serial.print("Humidity = ");
-  Serial.print(bme.readHumidity());
-  Serial.println(" %");
-
-  Serial.println();
-    
-=======
 }
 
+
 void measureBME() {
+  bme.takeForcedMeasurement();
   temp_bme = bme.readTemperature();
   pres_bme = bme.readPressure() / 100.0F;
   hum_bme = bme.readHumidity();
@@ -234,7 +155,6 @@ void formatData() {
   sensor_data[10] = scd_co2 & 0xFF;
   sensor_data[11] = (scd_hum >> 8) & 0xFF;
   sensor_data[12] = scd_hum & 0xFF;
->>>>>>> Stashed changes
 }
 
 void initialize_radio()
