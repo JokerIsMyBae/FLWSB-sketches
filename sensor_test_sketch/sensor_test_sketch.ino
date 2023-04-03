@@ -3,20 +3,18 @@
 #include <Adafruit_BME280.h>
 #include <Wire.h>
 
-#define SEALEVELPRESSURE_HPA (1013.25)
-
 /*
   Vraag temp, pressure en humidity op van BME 
   en format als 5 bytes in een array meegegeven als parameter.
 
   | Byte nr | Name            | Sensor range     | On Node MCU | Reformat |
   | ------- | --------------- | ---------------- | ----------- | -------- |
-  | 0-1     | Temperature     | -40 tot 85°C     | +40         | -40      | - BME280
-  | 2-4     | Pressure        | 300 tot 1100 hPa | n/a         | n/a      | - BME280
-  | 5-6     | Humidity        | 0 tot 100%       | n/a         | n/a      | - BME280
-  | 7-8     | Temperature     | -10 tot 60°C     | +10         | -10      | - SCD41
-  | 9-10    | co2             | 400 tot 5000 ppm | n/a         | n/a      | - SCD41
-  | 11-12   | Humidity        | 0 tot 95 %       | n/a         | n/a      | - SCD41
+  | 0-1     | Temperature     | -40 tot 85°C     | +40 *100    | /100 -40 | - BME280
+  | 2-4     | Pressure        | 300 tot 1100 hPa | *100        | /100     | - BME280
+  | 5-6     | Humidity        | 0 tot 100%       | *100        | /100     | - BME280
+  | 7-8     | Temperature     | -10 tot 60°C     | +10 *100    | /100 -10 | - SCD41
+  | 9-10    | co2             | 400 tot 5000 ppm | *100        | /100     | - SCD41
+  | 11-12   | Humidity        | 0 tot 95 %       | *100        | /100     | - SCD41
 */
 
 SensirionI2CScd4x scd4x;
@@ -34,7 +32,10 @@ void setup() {
   Wire.begin();
   
   scd4x.begin(Wire, 0x62);
-  status = bme.begin(0x76, &Wire);
+  status = bme.begin();
+  
+  if (status)
+    bme.setSampling(Adafruit_BME280::sensor_mode::MODE_FORCED);
 }
 
 void loop() {
@@ -91,12 +92,13 @@ void measureSCD() {
 }
 
 void measureBME() {
+  bme.takeForcedMeasurement();
   temp_bme = bme.readTemperature();
   pres_bme = bme.readPressure() / 100.0F;
   hum_bme = bme.readHumidity();
   if (isnan(temp_bme) || isnan(pres_bme) || isnan(hum_bme)) {
     temp_bme = 0xFFFF;
-    pres_bme = 0xFFFF;
+    pres_bme = 0xFFFFFF;
     hum_bme = 0xFFFF;
   }
 }
