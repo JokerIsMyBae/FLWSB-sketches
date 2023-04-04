@@ -42,7 +42,6 @@ void setup() {
   
   scd4x.begin(Wire, 0x62);
   status = bme.begin();
-
   
   if (status)
     bme.setSampling(Adafruit_BME280::sensor_mode::MODE_FORCED);
@@ -95,6 +94,13 @@ void measureSCD() {
   uint16_t serialnr0, serialnr1, serialnr2, error;
   
   error = scd4x.getSerialNumber(serialnr0, serialnr1, serialnr2);
+  if (error) {
+    temp_scd = 0xFFFF;
+    co2_scd = 0xFFFF;
+    hum_scd = 0xFFFF;
+    return;
+  }
+  error = scd4x.measureSingleShot();
   if (error) {
     temp_scd = 0xFFFF;
     co2_scd = 0xFFFF;
@@ -212,4 +218,3 @@ void initialize_radio()
   Serial.println("Successfully joined TTN");
   
 }
-
