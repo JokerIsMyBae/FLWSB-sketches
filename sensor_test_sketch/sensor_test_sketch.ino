@@ -5,23 +5,24 @@
 #include <Wire.h>
 #include <rn2xx3.h>
 
+#define DATA_LENGTH 18
+
 const char* appEui = "0000000000000000";
 const char* appKey = "5E7773DF01C66243843429D3B38C5FCB";
 
 /*
   Vraag temp, pressure en humidity op van BME
   en format als 5 bytes in een array meegegeven als parameter.
-  | Byte nr | Name            | Sensor range     | On Node MCU | Reformat |
-  | ------- | --------------- | ---------------- | ----------- | -------- |
-  | 0-1     | Temperature     | -40 tot 85°C     | +40 *100    | /100 -40 | -
-  BME280 | 2-4     | Pressure        | 300 tot 1100 hPa | *100        | /100 | -
-  BME280 | 5-6     | Humidity        | 0 tot 100%       | *100        | /100 | -
-  BME280 | 7-8     | Temperature     | -10 tot 60°C     | +10 *100    | /100 -10
-  | - SCD41 | 9-10    | co2             | 400 tot 5000 ppm | *100        | /100
-  | - SCD41 | 11-12   | Humidity        | 0 tot 95 %       | *100        | /100
-  | - SCD41 | 13-14   | PM2.5           | 0 tot 999 μg/m   | *10         | /10
-  | - SDS011 | 15-16   | PM10            | 0 tot 999 μg/m   | *10         | /10
-  | - SDS011
+  | Byte nr | Name        | Sensor range     | On Node MCU | Reformat |
+  | ------- | ----------- | ---------------- | ----------- | -------- |
+  | 0-1     | Temperature | -40 tot 85°C     | +40 *10     | /100 -40 | - BME280 
+  | 2-4     | Pressure    | 300 tot 1100 hPa | *100        | /100     | - BME280 
+  | 5-6     | Humidity    | 0 tot 100%       | *100        | /100     | - BME280 
+  | 7-8     | Temperature | -10 tot 60°C     | +10 *100    | /100 -10 | - SCD41 
+  | 9-10    | co2         | 400 tot 5000 ppm | *100        | /100     | - SCD41 
+  | 11-12   | Humidity    | 0 tot 95 %       | *100        | /100     | - SCD41 
+  | 13-14   | PM2.5       | 0 tot 999 μg/m   | *10         | /10      | - SDS011 
+  | 15-16   | PM10        | 0 tot 999 μg/m   | *10         | /10      | - SDS011
 
   error byte
   bit 7 = 1 -> BME not responding
@@ -42,7 +43,7 @@ SdsDustSensor sds(Serial1);
 uint16_t co2_scd = 0, pm25_sds = 0, pm10_sds = 0;
 float temp_bme = 0.0f, pres_bme = 0.0f, hum_bme = 0.0f, temp_scd = 0.0f,
       hum_scd = 0.0f;
-byte sensor_data[14];  // 13 bytes + one byte for error check
+byte sensor_data[DATA_LENGTH];  // = 18; 17 bytes + one byte for error check
 unsigned status;
 
 // LoRa variables
@@ -55,13 +56,20 @@ void setup() {
     Serial2.begin(57600);  // serial port to radio
 
     Wire.begin();
-    scd4x.begin(Wire, 0x62);
+
+    // Initialize sensors
+    scd4x.begin(Wire);
     status = bme.begin();
-    if (status)
-        bme.setSampling(Adafruit_BME280::sensor_mode::MODE_FORCED);
     sds.setQueryReportingMode();
 
-    Serial.println("Startup");
+    delay(10); // bme startup time
+
+    while (bme.isReadingCalibration()) delay(1);
+    bme.readCoefficients();
+    
+    if (status) bme.setSampling(Adafruit_BME280::sensor_mode::MODE_FORCED);
+
+    Serial.println("Startup LoRa");
 
     initialize_radio();
 
@@ -75,7 +83,7 @@ void loop() {
         last_send_time = millis();
 
         // measurements
-        sensor_data[13] = 0x00;  // clear all errors
+        sensor_data[DATA_LENGTH - 1] = 0x00;  // clear all errors
         executeMeasurements();
 
         formatData();
@@ -106,81 +114,91 @@ bool checkError(error) {
     return false;
 }
 
+bool bmeTimeout(&timeout_start) {
+  timeout_start = millis();
+  while (bme._read8(BME280_REGISTER_STATUS) & 0x08) { // read8 is private, provide interface?
+      if ((millis() - timeout_start) > 2000) {
+          return false;
+      }
+      delay(1);
+  }
+  return true;
+}
+
 void executeMeasurements() {
-    bool isDataReady = false;
+    bool isDataReady = false, correctMode = false;
     uint16_t serialnr0, serialnr1, serialnr2, error;
     uint8_t i = 0;
+    uint32_t timeout_start;
 
     // Wake-up sequence
     error = scd4x.wakeUp();
-    if (checkError(error))
-        return;
-    // SCD41 needs 20ms to wake up, delay is in library currently - this will be
-    // changed.
-    // delay(20);
-
     sds.wakeup();
-    // SDS011 needs to measure for 3 sec until measurements are reliable.
-    // delay(30000);
 
+    // wake-up time for scd41
+    delay(20); 
+
+    // check if sensor woke up
     error = scd4x.getSerialNumber(serialnr0, serialnr1, serialnr2);
-    if (checkError(error))
-        return;
 
     // Send out start measurement commands
     error = scd4x.measureSingleShot();
-    if (checkError(error))
-        return;
-    // measureSingleShot has built-in delay of 5000ms to wait
-    // for measurements - this will be changed.
-    do {
-        error = scd4x.getDataReadyFlag(isDataReady);
-        if (checkError(error))
-            return;
-        i++;
-    } while ((!isDataReady) && (i < 5));
-    error = scd4x.readMeasurement(co2_scd, temp_scd, hum_scd);
-    if (checkError(error))
-        return;
 
+    // If status == false, then bme hasn't been properly initialised
     if (!status) {
         temp_bme = 0xFFFF;
         pres_bme = 0xFFFFFF;
         hum_bme = 0xFFFF;
         sensor_data[13] |= (1 << 7);  // error setting up BME
     } else {
-        isDataReady = bme.takeForcedMeasurement();
-        // takeforcedmeasurement has built-in timeout check - this will be
-        // changed.
-        if (!isDataReady) {
-            temp_bme = 0xFFFF;
-            pres_bme = 0xFFFFFF;
-            hum_bme = 0xFFFF;
-        }
-        // After timeout check read measurements
-        temp_bme = bme.readTemperature();
-        pres_bme = bme.readPressure() / 100.0F;
-        hum_bme = bme.readHumidity();
-        if (isnan(temp_bme) || isnan(pres_bme) || isnan(hum_bme)) {
-            temp_bme = 0xFFFF;
-            pres_bme = 0xFFFFFF;
-            hum_bme = 0xFFFF;
-            sensor_data[13] |= (111 << 4);
-        }
+        correctMode = bme.takeForcedMeasurement();
+
+        // if forced measurement has started, time out until data is ready.
+        if (correctMode) isDataReady = bmeTimeout(timeout_start);
+    }
+    
+    // if bme is in forced mode and data is ready, read data registers.
+    if (correctMode && isDataReady) {
+      temp_bme = bme.readTemperature();
+      pres_bme = bme.readPressure() / 100.0F;
+      hum_bme = bme.readHumidity();
+
+      // if the data wasn't correct it returns NaN
+      if (isnan(temp_bme) || isnan(pres_bme) || isnan(hum_bme)) {
+          temp_bme = 0xFFFF;
+          pres_bme = 0xFFFFFF;
+          hum_bme = 0xFFFF;
+          sensor_data[DATA_LENGTH - 1] |= (111 << 4);
+      }
     }
 
-    // After 30 sec query the measurement results of SDS011
+    // measureSingleShot needs delay of 5000ms to wait for measurements 
+    // delay for the amount of millis that have not yet passed during the timeout
+    // so it is 5000ms long.
+    delay(5000 - (millis() - timeout_start)); 
+
+    // check if data ready
+    error = scd4x.getDataReadyFlag(isDataReady);
+
+    // read data
+    error = scd4x.readMeasurement(co2_scd, temp_scd, hum_scd);
+
+    // turn off scd
+    scd4x.powerDown();
+
+    // delay the rest of the 30s for SDS011 measurement
+    delay(25000); 
+
+    // request measurement results from sds
     PmResult pm = sds.queryPm();
     if (!pm.isOk()) {
         pm25_sds = 0xFFFF;
         pm10_sds = 0xFFFF;
-        return;
     }
     pm25_sds = pm.pm25;
     pm10_sds = pm.pm10;
 
-    // Sleep sensors, bme sleeps automatically
-    scd4x.powerDown();
+    // turn off sds
     sds.sleep();
 }
 
