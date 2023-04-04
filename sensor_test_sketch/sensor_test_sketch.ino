@@ -4,26 +4,33 @@
 #include <Wire.h>
 #include <rn2xx3.h>
 
-//LoRa variables
-const char *appEui = "0000000000000000";
-const char *appKey = "0BCEC12E4AEFE30F4E336184C1263975";
+#define SEALEVELPRESSURE_HPA (1013.25)
 
-rn2xx3 myLora(Serial2);
-double last_send_time = 0;
-double interval = 60000; // one minute
+const char *appEui = "0000000000000000";
+const char *appKey = "5E7773DF01C66243843429D3B38C5FCB";
 
 /*
   Vraag temp, pressure en humidity op van BME 
   en format als 5 bytes in een array meegegeven als parameter.
-
   | Byte nr | Name            | Sensor range     | On Node MCU | Reformat |
   | ------- | --------------- | ---------------- | ----------- | -------- |
-  | 0-1     | Temperature     | -40 tot 85°C     | +40 *100    | /100 -40 | - BME280
-  | 2-4     | Pressure        | 300 tot 1100 hPa | *100        | /100     | - BME280
-  | 5-6     | Humidity        | 0 tot 100%       | *100        | /100     | - BME280
-  | 7-8     | Temperature     | -10 tot 60°C     | +10 *100    | /100 -10 | - SCD41
-  | 9-10    | co2             | 400 tot 5000 ppm | *100        | /100     | - SCD41
-  | 11-12   | Humidity        | 0 tot 95 %       | *100        | /100     | - SCD41
+  | 0-1     | Temperature     | -40 tot 85°C     | +40         | -40      | - BME280
+  | 2-4     | Pressure        | 300 tot 1100 hPa | n/a         | n/a      | - BME280
+  | 5-6     | Humidity        | 0 tot 100%       | n/a         | n/a      | - BME280
+  | 7-8     | Temperature     | -10 tot 60°C     | +10         | -10      | - SCD41
+  | 9-10    | co2             | 400 tot 5000 ppm | n/a         | n/a      | - SCD41
+  | 11-12   | Humidity        | 0 tot 95 %       | n/a         | n/a      | - SCD41
+
+  error byte
+  bit 7 = 1 -> BME not responding
+  bit 6 = 1 -> BME temp error
+  bit 5 = 1 -> BME pressure error
+  bit 4 = 1 -> BME humidity error
+  bit 3 = 1 -> SCD not responding
+  bit 2 = 1 -> SCD temprature error
+  bit 1 = 1 -> SCD co2 error
+  bit 0 = 1 -> SCD humidity error
+
 */
 
 SensirionI2CScd4x scd4x;
@@ -31,26 +38,21 @@ Adafruit_BME280 bme;
 
 uint16_t co2_scd = 0;
 float temp_bme = 0.0f, pres_bme = 0.0f, hum_bme = 0.0f, temp_scd = 0.0f, hum_scd = 0.0f;
-byte sensor_data[13];
+byte sensor_data[14]; //13 bytes + one byte for error check
 unsigned status;
 
-void setup() {
-  Serial.begin(115200);
-  while (!Serial) {};
+//LoRa variables
+rn2xx3 myLora(Serial2);
+double last_send_time = 0;
+double interval = 60000; // one minute
 
+void setup() {
+  Serial.begin(57600);  //serial port to computer
   Wire.begin();
   
   scd4x.begin(Wire, 0x62);
-  status = bme.begin();
+  status = bme.begin(0x76, &Wire);
 
-  
-  if (status)
-    bme.setSampling(Adafruit_BME280::sensor_mode::MODE_FORCED);
-}
-
-void loop() {
-  //LoRa
-  Serial.begin(57600); //serial port to computer
   Serial2.begin(57600); //serial port to radio
   Serial.println("Startup");
 
@@ -60,34 +62,41 @@ void loop() {
   myLora.tx("TTN Mapper on TTN Enschede node");
 
   delay(2000);
+}
 
-  measureSCD();
-  if (!status) {
-    temp_bme = 0xFFFF;
-    pres_bme = 0xFFFFFF;
-    hum_bme = 0xFFFF;
-  } else {
-    measureBME();
-  }
-  formatData();
+void loop() {
 
-  for (int i = 0; i < 13; i++) {
-    Serial.println(sensor_data[i], HEX);
-  }
-
-  if (millis() - last_send_time >= interval)
-  {
+  if (millis() - last_send_time >= interval){
     last_send_time = millis();
+
+    //mesurements
+    sensor_data[13] = 0x00; //clear all errors
+    measureSCD();
+    //mesure BME
+    if (!status) {
+      temp_bme = 0xFFFF;
+      pres_bme = 0xFFFFFF;
+      hum_bme = 0xFFFF;
+      sensor_data[13] |= (1 << 7); //error setting up BME
+
+    } else {measureBME();}
+    formatData();
+
+    //printing data (optional)
+    for (int i = 0; i < 13; i++) {
+      Serial.println(sensor_data[i], HEX);
+    }
+
+    //send over LoRa
     Serial.println("TXing");
     double start = millis();
-    //data = "ABCD_ABCD_ABCD_ABCD_ABCD_ABCD_ABCD_ABCD"
-    //byte data[5] = {0x0, 0x17,  0x4, 0x4C, 0x50};
 
-    myLora.txBytes(sensor_data, 13); 
-    //calculate duration of transmission function
-    //double transmission = millis() - start;
-    //Serial.println(transmission);
+    myLora.txBytes(sensor_data, 14); //give data and data length; check declaration 
+    double transmission = millis() - start;
+    Serial.println(transmission);
+
   } 
+
 }
 
 void measureSCD() {
@@ -95,6 +104,13 @@ void measureSCD() {
   uint16_t serialnr0, serialnr1, serialnr2, error;
   
   error = scd4x.getSerialNumber(serialnr0, serialnr1, serialnr2);
+  if (error) {
+    temp_scd = 0xFFFF;
+    co2_scd = 0xFFFF;
+    hum_scd = 0xFFFF;
+    return;
+  }
+  error = scd4x.measureSingleShot();
   if (error) {
     temp_scd = 0xFFFF;
     co2_scd = 0xFFFF;
@@ -120,9 +136,7 @@ void measureSCD() {
   }
 }
 
-
 void measureBME() {
-  bme.takeForcedMeasurement();
   temp_bme = bme.readTemperature();
   pres_bme = bme.readPressure() / 100.0F;
   hum_bme = bme.readHumidity();
@@ -130,6 +144,7 @@ void measureBME() {
     temp_bme = 0xFFFF;
     pres_bme = 0xFFFFFF;
     hum_bme = 0xFFFF;
+    sensor_data[13] |= (111 << 4);
   }
 }
 
@@ -160,19 +175,20 @@ void formatData() {
 void initialize_radio()
 {
   //reset rn2483
+  //was pin 18
+  //while(!Serial){}
+  
   Serial.println("resetting lora");
   pinMode(PA10, OUTPUT);
   digitalWrite(PA10, LOW);
   delay(1000);
   digitalWrite(PA10, HIGH);
-  Serial.println("done resetting lora")
-  ;
-  // print appKey en joinEUI in serial monitor
+  Serial.println("done resetting lora");
+  // ingestelde appKey en joinEUI
   Serial.print("appKey: ");
   Serial.println(appKey);
   Serial.print("joinEUI: ");
   Serial.println(appEui);
-  
   delay(100); //wait for the RN2xx3's startup message
   Serial2.flush();
 
@@ -199,7 +215,6 @@ void initialize_radio()
   Serial.println("Trying to join TTN");
   bool join_result = false;
 
-
   join_result = myLora.initOTAA(appEui, appKey);
 
   // Loopt vast bij OTAA, uncomment voor ABP
@@ -212,4 +227,5 @@ void initialize_radio()
   Serial.println("Successfully joined TTN");
   
 }
+
 
