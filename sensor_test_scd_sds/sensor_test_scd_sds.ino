@@ -17,13 +17,13 @@ const char* appKey = "5E7773DF01C66243843429D3B38C5FCB";
   en format als 5 bytes in een array meegegeven als parameter.
   | Byte nr | Name        | Sensor range     | On Node MCU | Reformat |
   | ------- | ----------- | ---------------- | ----------- | -------- |
-  | 0-1     | Temperature | -40 tot 85°C     | +40 *10     | /100 -40 | - BME280 
-  | 2-4     | Pressure    | 300 tot 1100 hPa | *100        | /100     | - BME280 
-  | 5-6     | Humidity    | 0 tot 100%       | *100        | /100     | - BME280 
-  | 7-8     | Temperature | -10 tot 60°C     | +10 *100    | /100 -10 | - SCD41 
-  | 9-10    | co2         | 400 tot 5000 ppm | *100        | /100     | - SCD41 
-  | 11-12   | Humidity    | 0 tot 95 %       | *100        | /100     | - SCD41 
-  | 13-14   | PM2.5       | 0 tot 999 μg/m   | *10         | /10      | - SDS011 
+  | 0-1     | Temperature | -40 tot 85°C     | +40 *10     | /100 -40 | - BME280
+  | 2-4     | Pressure    | 300 tot 1100 hPa | *100        | /100     | - BME280
+  | 5-6     | Humidity    | 0 tot 100%       | *100        | /100     | - BME280
+  | 7-8     | Temperature | -10 tot 60°C     | +10 *100    | /100 -10 | - SCD41
+  | 9-10    | co2         | 400 tot 5000 ppm | *100        | /100     | - SCD41
+  | 11-12   | Humidity    | 0 tot 95 %       | *100        | /100     | - SCD41
+  | 13-14   | PM2.5       | 0 tot 999 μg/m   | *10         | /10      | - SDS011
   | 15-16   | PM10        | 0 tot 999 μg/m   | *10         | /10      | - SDS011
 
   error byte
@@ -46,7 +46,7 @@ uint16_t co2_scd = 0, pm25_sds = 0, pm10_sds = 0;
 float temp_bme = 0.0f, pres_bme = 0.0f, hum_bme = 0.0f, temp_scd = 0.0f,
       hum_scd = 0.0f;
 byte sensor_data[DATA_LENGTH];  // = 18; 17 bytes + one byte for error check
-unsigned status = false;
+unsigned status;
 
 // LoRa variables
 rn2xx3 myLora(Serial2);
@@ -60,15 +60,17 @@ void setup() {
 
     // Initialize sensors
     scd4x.begin(Wire);
-//    status = bme.begin();
+    // status = bme.begin();
     sds.setQueryReportingMode();
 
-//    delay(10); // bme startup time
+    // delay(10);  // bme startup time
 
-//    while (bme.isReadingCalibration()) delay(1);
-//    bme.readCoefficients();
-    
-//    if (status) bme.setSampling(Adafruit_BME280::sensor_mode::MODE_FORCED);
+    // while (bme.isReadingCalibration())
+    // delay(1);
+    // bme.readCoefficients();
+
+    // if (status)
+    // bme.setSampling(Adafruit_BME280::sensor_mode::MODE_FORCED);
 
     Serial.println("Startup LoRa");
 
@@ -83,51 +85,57 @@ void setup() {
 
 void loop() {
 
-        // measurements
-        sensor_data[DATA_LENGTH - 1] = 0x00;  // clear all errors
-        executeMeasurements();
+    // measurements
+    sensor_data[DATA_LENGTH - 1] = 0x00;  // clear all errors
+    executeMeasurements();
 
-        formatData();
+    formatData();
 
-        // printing data (optional)
-        for (int i = 0; i < 13; i++) {
-            Serial.println(sensor_data[i], HEX);
-        }
-
-        // send over LoRa
-        Serial.println("TXing");
-        double start = millis();
-
-        myLora.txBytes(sensor_data,
-                       DATA_LENGTH);  // give data and data length; check declaration
-        double transmission = millis() - start;
-        Serial.println(transmission);
+    // printing data (optional)
+    for (int i = 0; i < DATA_LENGTH; i++) {
+        Serial.println(sensor_data[i], HEX);
     }
+
+    // send over LoRa
+    Serial.println("TXing");
+    double start = millis();
+
+    myLora.txBytes(sensor_data,
+                   14);  // give data and data length; check declaration
+    double transmission = millis() - start;
+    Serial.println(transmission);
+
+    MCUsleep(sleepseconds);
 }
 
-bool bmeTimeout(uint32_t& timeout_start) {
-  timeout_start = millis();
-  while (bme.isMeasuring()) { // read8 is private, provide interface?
-      if ((millis() - timeout_start) > 2000) {
-          return false;
-      }
-      delay(1);
-  }
-  return true;
-}
+// bool bmeTimeout(uint32_t& timeout_start) {
+//     timeout_start = millis();
+//     while (bme.isMeasuring()) {  // read8 is private, provide interface?
+//         if ((millis() - timeout_start) > 2000) {
+//             return false;
+//         }
+//         delay(1);
+//     }
+//     return true;
+// }
 
 void executeMeasurements() {
     bool isDataReady = false, correctMode = false;
     uint16_t serialnr0, serialnr1, serialnr2, error;
     uint8_t i = 0;
-    uint32_t timeout_start;
+    // uint32_t timeout_start;
 
-    // Wake-up sequence
-    error = scd4x.wakeUp();
+    // Wake-up sequence sensors
     sds.wakeup();
 
+    // Sleep mcu for 25s
+    MCUsleep(24);
+
+    // Wake up scd to get measurements at the same time as sds
+    error = scd4x.wakeUp();
+
     // wake-up time for scd41
-    delay(20); 
+    delay(20);
 
     // check if sensor woke up
     error = scd4x.getSerialNumber(serialnr0, serialnr1, serialnr2);
@@ -136,70 +144,43 @@ void executeMeasurements() {
     error = scd4x.measureSingleShot();
 
     // If status == false, then bme hasn't been properly initialised
-    if (!status) {
-        temp_bme = 0xFFFF;
-        pres_bme = 0xFFFFFF;
-        hum_bme = 0xFFFF;
-        sensor_data[13] |= (1 << 7);  // error setting up BME
-    } else {
-        correctMode = bme.takeForcedMeasurement();
+    // if (!status) {
+    temp_bme = 0xFFFF;
+    pres_bme = 0xFFFFFF;
+    hum_bme = 0xFFFF;
+    // sensor_data[13] |= (1 << 7);  // error setting up BME
+    // } else {
+    // correctMode = bme.takeForcedMeasurement();
 
-        // if forced measurement has started, time out until data is ready.
-        if (correctMode) isDataReady = bmeTimeout(timeout_start);
-    }
-    
+    // if forced measurement has started, time out until data is ready.
+    // if (correctMode)
+    // isDataReady = bmeTimeout(timeout_start);
+    // }
+
     // if bme is in forced mode and data is ready, read data registers.
-//    if (correctMode && isDataReady) {
-//      temp_bme = bme.readTemperature();
-//      pres_bme = bme.readPressure() / 100.0F;
-//      hum_bme = bme.readHumidity();
-//
-//      // if the data wasn't correct it returns NaN
-//      if (isnan(temp_bme) || isnan(pres_bme) || isnan(hum_bme)) {
-//          temp_bme = 0xFFFF;
-//          pres_bme = 0xFFFFFF;
-//          hum_bme = 0xFFFF;
-//          sensor_data[DATA_LENGTH - 1] |= (111 << 4);
-//      }
-//    }
+    // if (correctMode && isDataReady) {
+    //     temp_bme = bme.readTemperature();
+    //     pres_bme = bme.readPressure() / 100.0F;
+    //     hum_bme = bme.readHumidity();
 
-    // measureSingleShot needs delay of 5000ms to wait for measurements 
-    // set to sleep for 5s
-    RTC->MODE1.CTRL.bit.ENABLE = 0;                             // Disable the RTC  --> to stop count outside standby
-    while (RTC->MODE1.STATUS.bit.SYNCBUSY);                     // Wait for synchronization
-    RTC->MODE1.PER.reg = RTC_MODE1_PER_PER(5);                  // Interrupt time in s: 1Hz/(#seconds + 1)
-    while (RTC->MODE1.STATUS.bit.SYNCBUSY);                     // Wait for synchronization
-    RTC->MODE1.CTRL.bit.ENABLE = 1;                             // Enable the RTC
-    while (RTC->MODE1.STATUS.bit.SYNCBUSY);                     // Wait for synchronization  
-    SysTick->CTRL &= ~SysTick_CTRL_TICKINT_Msk;                 // Disable SysTick interrupts
-    __DSB();                                                    // Complete outstanding memory operations - not required for SAMD21 ARM Cortex M0+
-    __WFI();                                                    // Put the SAMD21 into deep sleep, Zzzzzzzz...
-    SysTick->CTRL |= SysTick_CTRL_TICKINT_Msk;                  // Enable SysTick interrupts
-  
-    RTC->MODE1.CTRL.bit.ENABLE = 0;                             // Disable the RTC  --> to stop count outside standby
-    while (RTC->MODE1.STATUS.bit.SYNCBUSY);                     // Wait for synchronization
-  
+    //     // if the data wasn't correct it returns NaN
+    //     if (isnan(temp_bme) || isnan(pres_bme) || isnan(hum_bme)) {
+    //         temp_bme = 0xFFFF;
+    //         pres_bme = 0xFFFFFF;
+    //         hum_bme = 0xFFFF;
+    //         sensor_data[DATA_LENGTH - 1] |= (111 << 4);
+    //     }
+    // }
+
+    // measureSingleShot needs delay of 5000ms to wait for measurements
+    // set to sleep for the remaining time of 5s
+    delay(5000);
+
     // check if data ready
     error = scd4x.getDataReadyFlag(isDataReady);
 
     // read data
     error = scd4x.readMeasurement(co2_scd, temp_scd, hum_scd);
-
-    // turn off scd
-    scd4x.powerDown();
-
-    // sleep for the rest of the 30s for SDS011 measurement
-    RTC->MODE1.PER.reg = RTC_MODE1_PER_PER(25);                 // Interrupt time in s: 1Hz/(#seconds + 1)
-    while (RTC->MODE1.STATUS.bit.SYNCBUSY);                     // Wait for synchronization
-    RTC->MODE1.CTRL.bit.ENABLE = 1;                             // Enable the RTC
-    while (RTC->MODE1.STATUS.bit.SYNCBUSY);                     // Wait for synchronization  
-    SysTick->CTRL &= ~SysTick_CTRL_TICKINT_Msk;                 // Disable SysTick interrupts
-    __DSB();                                                    // Complete outstanding memory operations - not required for SAMD21 ARM Cortex M0+
-    __WFI();                                                    // Put the SAMD21 into deep sleep, Zzzzzzzz...
-    SysTick->CTRL |= SysTick_CTRL_TICKINT_Msk;                  // Enable SysTick interrupts
-  
-    RTC->MODE1.CTRL.bit.ENABLE = 0;                             // Disable the RTC  --> to stop count outside standby
-    while (RTC->MODE1.STATUS.bit.SYNCBUSY);                     // Wait for synchronization
 
     // request measurement results from sds
     PmResult pm = sds.queryPm();
@@ -210,16 +191,9 @@ void executeMeasurements() {
     pm25_sds = pm.pm25;
     pm10_sds = pm.pm10;
 
-    // turn off sds
+    // turn off sensors
+    scd4x.powerDown();
     sds.sleep();
-    
-    //re-enable rtc & put mcu in standby mode until overflow interrupt
-    RTC->MODE1.CTRL.bit.ENABLE = 0;                             // Disable the RTC  --> to stop count outside standby
-    while (RTC->MODE1.STATUS.bit.SYNCBUSY);                     // Wait for synchronization
-    SysTick->CTRL &= ~SysTick_CTRL_TICKINT_Msk;           // Disable SysTick interrupts
-    __DSB();                                              // Complete outstanding memory operations - not required for SAMD21 ARM Cortex M0+
-    __WFI();                                              // Put the SAMD21 into deep sleep, Zzzzzzzz...
-    SysTick->CTRL |= SysTick_CTRL_TICKINT_Msk;            // Enable SysTick interrupts
 }
 
 void formatData() {
@@ -265,7 +239,7 @@ void initialize_radio()
     digitalWrite(PA10, LOW);
     Serial.println("done resetting lora");
     // ingestelde appKey en joinEUI
-    
+    ;
     // print appKey en joinEUI in serial monitor
     Serial.print("appKey: ");
     Serial.println(appKey);
@@ -308,55 +282,92 @@ void initialize_radio()
 }
 
 void InitRTCInt() {
-  GCLK->GENCTRL.reg = GCLK_GENCTRL_IDC |            //50-50 Duty(Though,it will not reflect on any output pin)
-                      GCLK_GENCTRL_GENEN |          //Enable generic clock generator
-                      GCLK_GENCTRL_SRC_OSCULP32K |  //Internal 32kHz low power clock as source
-                      GCLK_GENCTRL_ID(4) |          //Select GCLK 4
-                      GCLK_GENCTRL_DIVSEL |         //Set GLCK divisor as 2 to the power of (divisor) value
-                      GCLK_GENCTRL_RUNSTDBY;        //Run on standby
-  while (GCLK->STATUS.bit.SYNCBUSY);
+    GCLK->GENCTRL.reg = GCLK_GENCTRL_IDC |    // 50-50 Duty(Though,it will not
+                                              // reflect on any output pin)
+                        GCLK_GENCTRL_GENEN |  // Enable generic clock generator
+                        GCLK_GENCTRL_SRC_OSCULP32K |  // Internal 32kHz low
+                                                      // power clock as source
+                        GCLK_GENCTRL_ID(4) |          // Select GCLK 4
+                        GCLK_GENCTRL_DIVSEL |   // Set GLCK divisor as 2 to the
+                                                // power of (divisor) value
+                        GCLK_GENCTRL_RUNSTDBY;  // Run on standby
+    while (GCLK->STATUS.bit.SYNCBUSY)
+        ;
 
-  //Set Clock divider for GCLK4
-  GCLK->GENDIV.reg = GCLK_GENDIV_DIV(4) |         //Select clock divisor to divide by 32 (2 ^ (4 + 1))
-                     GCLK_GENDIV_ID(4);           //GCLK4
-  while (GCLK->STATUS.bit.SYNCBUSY);              //Wait for synchronization
+    // Set Clock divider for GCLK4
+    GCLK->GENDIV.reg =
+        GCLK_GENDIV_DIV(
+            4) |  // Select clock divisor to divide by 32 (2 ^ (4 + 1))
+        GCLK_GENDIV_ID(4);  // GCLK4
+    while (GCLK->STATUS.bit.SYNCBUSY)
+        ;  // Wait for synchronization
 
- //Connect GCLK4 output to RTC
-  GCLK->CLKCTRL.reg = GCLK_CLKCTRL_GEN_GCLK4 |  // Select GCLK4
-                      GCLK_CLKCTRL_ID_RTC |     // Connect to the RTC
-                      GCLK_CLKCTRL_CLKEN;       // Enable GCLK4
-  while (GCLK->STATUS.bit.SYNCBUSY);            // Wait for synchronization
+    // Connect GCLK4 output to RTC
+    GCLK->CLKCTRL.reg = GCLK_CLKCTRL_GEN_GCLK4 |  // Select GCLK4
+                        GCLK_CLKCTRL_ID_RTC |     // Connect to the RTC
+                        GCLK_CLKCTRL_CLKEN;       // Enable GCLK4
+    while (GCLK->STATUS.bit.SYNCBUSY)
+        ;  // Wait for synchronization
 
-  // RTC configuration (rtc.h)--------------------------------------------------
-  RTC->MODE1.CTRL.bit.ENABLE = 0;                       // Disable the RTC
-  while (RTC->MODE0.STATUS.bit.SYNCBUSY);               // Wait for synchronization
+    // RTC configuration
+    // (rtc.h)--------------------------------------------------
+    RTC->MODE1.CTRL.bit.ENABLE = 0;  // Disable the RTC
+    while (RTC->MODE0.STATUS.bit.SYNCBUSY)
+        ;  // Wait for synchronization
 
-  RTC->MODE1.CTRL.bit.SWRST = 1;                       // Software reset the RTC
-  while (RTC->MODE0.STATUS.bit.SYNCBUSY);              // Wait for synchronization
+    RTC->MODE1.CTRL.bit.SWRST = 1;  // Software reset the RTC
+    while (RTC->MODE0.STATUS.bit.SYNCBUSY)
+        ;  // Wait for synchronization
 
-  RTC->MODE1.CTRL.reg |= RTC_MODE1_CTRL_PRESCALER_DIV1024 |     // Set prescaler to 1024
-                         RTC_MODE1_CTRL_MODE_COUNT16;           // Set RTC to mode 0, 32-bit timer
+    RTC->MODE1.CTRL.reg |=
+        RTC_MODE1_CTRL_PRESCALER_DIV1024 |  // Set prescaler to 1024
+        RTC_MODE1_CTRL_MODE_COUNT16;        // Set RTC to mode 0, 32-bit timer
 
-  // SET TIME IN SEC HERE AFTER RTC_MODE1_PER_PER
-  RTC->MODE1.PER.reg = RTC_MODE1_PER_PER(sleepseconds);         // Interrupt time in s: 1Hz/(#seconds + 1)
-  while (RTC->MODE0.STATUS.bit.SYNCBUSY);                       // Wait for synchronization
+    // SET TIME IN SEC HERE AFTER RTC_MODE1_PER_PER
+    RTC->MODE1.PER.reg = RTC_MODE1_PER_PER(
+        sleepseconds);  // Interrupt time in s: 1Hz/(#seconds + 1)
+    while (RTC->MODE0.STATUS.bit.SYNCBUSY)
+        ;  // Wait for synchronization
 
-  // Configure RTC interrupts ------------------------------------------
-  RTC->MODE1.INTENSET.reg = RTC_MODE0_INTENSET_CMP0;            // Enable RTC overflow interrupts
+    // Configure RTC interrupts ------------------------------------------
+    RTC->MODE1.INTENSET.reg =
+        RTC_MODE0_INTENSET_CMP0;  // Enable RTC overflow interrupts
 
-  NVIC_SetPriority(RTC_IRQn, 0);    // Set the Nested Vector Interrupt Controller (NVIC) priority for RTC
-  NVIC_EnableIRQ(RTC_IRQn);         // Connect RTC to Nested Vector Interrupt Controller (NVIC)
+    NVIC_SetPriority(RTC_IRQn, 0);  // Set the Nested Vector Interrupt
+                                    // Controller (NVIC) priority for RTC
+    NVIC_EnableIRQ(
+        RTC_IRQn);  // Connect RTC to Nested Vector Interrupt Controller (NVIC)
 
-  // Enable Deep Sleep Mode--------------------------------------------------------------
-  SCB->SCR |= SCB_SCR_SLEEPDEEP_Msk;// | SCB_SCR_SLEEPONEXIT_Msk;  // Put the SAMD21 in deep sleep upon executing the __WFI() function
-  NVMCTRL->CTRLB.reg |= NVMCTRL_CTRLB_SLEEPPRM_DISABLED;        // Disable auto power reduction during sleep - SAMD21 Errata 1.14.2
-  
-
-  // Enable RTC--------------------------------------------------------------
-  RTC->MODE1.CTRL.bit.ENABLE = 1;                       // Enable the RTC
-  while (RTC->MODE1.STATUS.bit.SYNCBUSY);               // Wait for synchronization
+    // Enable Deep Sleep
+    // Mode--------------------------------------------------------------
+    SCB->SCR |= SCB_SCR_SLEEPDEEP_Msk;  // | SCB_SCR_SLEEPONEXIT_Msk;  // Put
+                                        // the SAMD21 in deep sleep upon
+                                        // executing the __WFI() function
+    NVMCTRL->CTRLB.reg |=
+        NVMCTRL_CTRLB_SLEEPPRM_DISABLED;  // Disable auto power reduction during
+                                          // sleep - SAMD21 Errata 1.14.2
 }
 
 void RTC_Handler() {
-  RTC->MODE1.INTFLAG.bit.OVF = 1;                                  // Reset the overflow interrupt flag
+    RTC->MODE1.INTFLAG.bit.OVF = 1;  // Reset the overflow interrupt flag
+}
+
+void MCUsleep(int downtime) {
+    RTC->MODE1.PER.reg =
+        RTC_MODE1_PER_PER(downtime);  // Interrupt time in s: 1Hz/(#seconds + 1)
+    while (RTC->MODE1.STATUS.bit.SYNCBUSY) {
+    };                               // Wait for synchronization
+    RTC->MODE1.CTRL.bit.ENABLE = 1;  // Enable the RTC
+    while (RTC->MODE1.STATUS.bit.SYNCBUSY) {
+    };                                           // Wait for synchronization
+    SysTick->CTRL &= ~SysTick_CTRL_TICKINT_Msk;  // Disable SysTick interrupts
+    __DSB();  // Complete outstanding memory operations - not required for
+              // SAMD21 ARM Cortex M0+
+    __WFI();  // Put the SAMD21 into deep sleep, Zzzzzzzz...
+    SysTick->CTRL |= SysTick_CTRL_TICKINT_Msk;  // Enable SysTick interrupts
+
+    RTC->MODE1.CTRL.bit.ENABLE =
+        0;  // Disable the RTC  --> to stop count outside standby
+    while (RTC->MODE1.STATUS.bit.SYNCBUSY) {
+    };  // Wait for synchronization
 }
