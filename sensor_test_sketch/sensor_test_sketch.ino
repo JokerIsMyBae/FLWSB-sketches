@@ -92,7 +92,7 @@ void loop() {
     formatData();
 
     // printing data (optional)
-    for (int i = 0; i < 13; i++) {
+    for (int i = 0; i < DATA_LENGTH; i++) {
         Serial.println(sensor_data[i], HEX);
     }
 
