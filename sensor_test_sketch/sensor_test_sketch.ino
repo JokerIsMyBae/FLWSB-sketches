@@ -205,6 +205,9 @@ void formatData() {
     uint16_t scd_hum = hum_scd * 100;
     uint16_t scd_co2 = co2_scd;
 
+    uint16_t sds_pm25 = pm25_sds * 10;
+    uint16_t sds_pm10 = pm10_sds * 10;
+
     sensor_data[0] = (bme_temp >> 8) & 0xFF;
     sensor_data[1] = bme_temp & 0xFF;
     sensor_data[2] = (bme_pres >> 16) & 0xFF;
@@ -349,7 +352,7 @@ void RTC_Handler() {
     RTC->MODE1.INTFLAG.bit.OVF = 1;  // Reset the overflow interrupt flag
 }
 
-void MCUsleep(downtime) {
+void MCUsleep(int downtime) {
     RTC->MODE1.PER.reg =
         RTC_MODE1_PER_PER(downtime);  // Interrupt time in s: 1Hz/(#seconds + 1)
     while (RTC->MODE1.STATUS.bit.SYNCBUSY) {
