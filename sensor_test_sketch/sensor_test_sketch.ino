@@ -104,19 +104,9 @@ void loop() {
     }
 }
 
-bool checkError(error) {
-    if (error) {
-        temp_scd = 0xFFFF;
-        co2_scd = 0xFFFF;
-        hum_scd = 0xFFFF;
-        return true;
-    }
-    return false;
-}
-
-bool bmeTimeout(&timeout_start) {
+bool bmeTimeout(uint32_t& timeout_start) {
   timeout_start = millis();
-  while (bme._read8(BME280_REGISTER_STATUS) & 0x08) { // read8 is private, provide interface?
+  while (bme.isMeasuring()) { // read8 is private, provide interface?
       if ((millis() - timeout_start) > 2000) {
           return false;
       }
