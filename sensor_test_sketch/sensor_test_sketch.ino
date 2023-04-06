@@ -102,6 +102,7 @@ void loop() {
                        14);  // give data and data length; check declaration
         double transmission = millis() - start;
         Serial.println(transmission);
+        MCUsleep(sleepseconds);
     }
 }
 
@@ -122,7 +123,7 @@ void executeMeasurements() {
     uint8_t i = 0;
     uint32_t timeout_start;
 
-    // Wake-up sequence
+    // Wake-up sequence sensors
     error = scd4x.wakeUp();
     sds.wakeup();
 
@@ -165,20 +166,7 @@ void executeMeasurements() {
 
     // measureSingleShot needs delay of 5000ms to wait for measurements 
     // set to sleep for 5s
-    RTC->MODE1.CTRL.bit.ENABLE = 0;                             // Disable the RTC  --> to stop count outside standby
-    while (RTC->MODE1.STATUS.bit.SYNCBUSY);                     // Wait for synchronization
-    RTC->MODE1.PER.reg = RTC_MODE1_PER_PER(5);                  // Interrupt time in s: 1Hz/(#seconds + 1)
-    while (RTC->MODE1.STATUS.bit.SYNCBUSY);                     // Wait for synchronization
-    RTC->MODE1.CTRL.bit.ENABLE = 1;                             // Enable the RTC
-    while (RTC->MODE1.STATUS.bit.SYNCBUSY);                     // Wait for synchronization  
-    SysTick->CTRL &= ~SysTick_CTRL_TICKINT_Msk;                 // Disable SysTick interrupts
-    __DSB();                                                    // Complete outstanding memory operations - not required for SAMD21 ARM Cortex M0+
-    __WFI();                                                    // Put the SAMD21 into deep sleep, Zzzzzzzz...
-    SysTick->CTRL |= SysTick_CTRL_TICKINT_Msk;                  // Enable SysTick interrupts
-  
-    RTC->MODE1.CTRL.bit.ENABLE = 0;                             // Disable the RTC  --> to stop count outside standby
-    while (RTC->MODE1.STATUS.bit.SYNCBUSY);                     // Wait for synchronization
-  
+    MCUsleep(5);
     // check if data ready
     error = scd4x.getDataReadyFlag(isDataReady);
 
@@ -189,17 +177,7 @@ void executeMeasurements() {
     scd4x.powerDown();
 
     // sleep for the rest of the 30s for SDS011 measurement
-    RTC->MODE1.PER.reg = RTC_MODE1_PER_PER(25);                 // Interrupt time in s: 1Hz/(#seconds + 1)
-    while (RTC->MODE1.STATUS.bit.SYNCBUSY);                     // Wait for synchronization
-    RTC->MODE1.CTRL.bit.ENABLE = 1;                             // Enable the RTC
-    while (RTC->MODE1.STATUS.bit.SYNCBUSY);                     // Wait for synchronization  
-    SysTick->CTRL &= ~SysTick_CTRL_TICKINT_Msk;                 // Disable SysTick interrupts
-    __DSB();                                                    // Complete outstanding memory operations - not required for SAMD21 ARM Cortex M0+
-    __WFI();                                                    // Put the SAMD21 into deep sleep, Zzzzzzzz...
-    SysTick->CTRL |= SysTick_CTRL_TICKINT_Msk;                  // Enable SysTick interrupts
-  
-    RTC->MODE1.CTRL.bit.ENABLE = 0;                             // Disable the RTC  --> to stop count outside standby
-    while (RTC->MODE1.STATUS.bit.SYNCBUSY);                     // Wait for synchronization
+    MCUsleep(25);
 
     // request measurement results from sds
     PmResult pm = sds.queryPm();
@@ -212,14 +190,6 @@ void executeMeasurements() {
 
     // turn off sds
     sds.sleep();
-    
-    //re-enable rtc & put mcu in standby mode until overflow interrupt
-    RTC->MODE1.CTRL.bit.ENABLE = 0;                             // Disable the RTC  --> to stop count outside standby
-    while (RTC->MODE1.STATUS.bit.SYNCBUSY);                     // Wait for synchronization
-    SysTick->CTRL &= ~SysTick_CTRL_TICKINT_Msk;           // Disable SysTick interrupts
-    __DSB();                                              // Complete outstanding memory operations - not required for SAMD21 ARM Cortex M0+
-    __WFI();                                              // Put the SAMD21 into deep sleep, Zzzzzzzz...
-    SysTick->CTRL |= SysTick_CTRL_TICKINT_Msk;            // Enable SysTick interrupts
 }
 
 void formatData() {
@@ -343,12 +313,22 @@ void InitRTCInt() {
   SCB->SCR |= SCB_SCR_SLEEPDEEP_Msk;// | SCB_SCR_SLEEPONEXIT_Msk;  // Put the SAMD21 in deep sleep upon executing the __WFI() function
   NVMCTRL->CTRLB.reg |= NVMCTRL_CTRLB_SLEEPPRM_DISABLED;        // Disable auto power reduction during sleep - SAMD21 Errata 1.14.2
   
-
-  // Enable RTC--------------------------------------------------------------
-  RTC->MODE1.CTRL.bit.ENABLE = 1;                       // Enable the RTC
-  while (RTC->MODE1.STATUS.bit.SYNCBUSY);               // Wait for synchronization
 }
 
 void RTC_Handler() {
   RTC->MODE1.INTFLAG.bit.OVF = 1;                                  // Reset the overflow interrupt flag
+}
+
+void MCUsleep(downtime){
+  RTC->MODE1.PER.reg = RTC_MODE1_PER_PER(downtime);                 // Interrupt time in s: 1Hz/(#seconds + 1)
+  while (RTC->MODE1.STATUS.bit.SYNCBUSY);                     // Wait for synchronization
+  RTC->MODE1.CTRL.bit.ENABLE = 1;                             // Enable the RTC
+  while (RTC->MODE1.STATUS.bit.SYNCBUSY);                     // Wait for synchronization  
+  SysTick->CTRL &= ~SysTick_CTRL_TICKINT_Msk;                 // Disable SysTick interrupts
+  __DSB();                                                    // Complete outstanding memory operations - not required for SAMD21 ARM Cortex M0+
+  __WFI();                                                    // Put the SAMD21 into deep sleep, Zzzzzzzz...
+  SysTick->CTRL |= SysTick_CTRL_TICKINT_Msk;                  // Enable SysTick interrupts
+  
+  RTC->MODE1.CTRL.bit.ENABLE = 0;                             // Disable the RTC  --> to stop count outside standby
+  while (RTC->MODE1.STATUS.bit.SYNCBUSY);                     // Wait for synchronization  
 }
