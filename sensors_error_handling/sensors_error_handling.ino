@@ -21,15 +21,9 @@
   | 15-16   | PM10        | 0 tot 999 μg/m   | *10         | /10      | - SDS011
 
   error byte
-  bit 7 = 1 -> BME not responding
-  bit 6 = 1 -> BME temp error
-  bit 5 = 1 -> BME pressure error
-  bit 4 = 1 -> BME humidity error
+  bit 6 = 1 -> SDS not responding
   bit 3 = 1 -> SCD not responding
-  bit 2 = 1 -> SCD temprature error
-  bit 1 = 1 -> SCD co2 error
-  bit 0 = 1 -> SCD humidity error
-
+  bit 0 = 1 -> BME not responding
 */
 
 SensirionI2CScd4x scd4x;
