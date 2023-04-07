@@ -74,11 +74,13 @@ void loop() {
     for (int i = 0; i < DATA_LENGTH; i++) {
         Serial.println(sensor_data[i], HEX);
     }
+
+    delay(30000);
 }
 
 bool bmeTimeout(uint32_t& timeout_start) {
     timeout_start = millis();
-    while (bme.isMeasuring()) {  // read8 is private, provide interface?
+    while (bme.isMeasuring()) {
         if ((millis() - timeout_start) > 2000) {
             return false;
         }
