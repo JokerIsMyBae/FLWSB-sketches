@@ -5,7 +5,7 @@
 #include <Wire.h>
 #include <rn2xx3.h>
 
-#define DATA_LENGTH 18
+#define DATA_LENGTH 20
 #define SLEEPSECONDS 29
 
 const char* appEui = "0000000000000000";
@@ -23,10 +23,14 @@ const char* appKey = "B123E59E88F18F43892A258D6D73B9FD";
   | 11-12   | Humidity    | 0 tot 95 %       | *100        | /100     | - SCD41
   | 13-14   | PM2.5       | 0 tot 999 μg/m   | *10         | /10      | - SDS011
   | 15-16   | PM10        | 0 tot 999 μg/m   | *10         | /10      | - SDS011
+  | 17-18   | Battery V   | 0 tot 3.3V       | *100        | /100     |   n/a
+
+  If battery level equals 3.3V, this means it is between 3.3V and 4.2V
 
   error byte
-  bit 6 = 1 -> SDS not responding
-  bit 3 = 1 -> SCD not responding
+  bit 3 = 1 -> battery under 3.3V
+  bit 2 = 1 -> SDS not responding
+  bit 1 = 1 -> SCD not responding
   bit 0 = 1 -> BME not responding
 
 */
@@ -37,7 +41,7 @@ SdsDustSensor sds(Serial1);
 
 uint16_t co2_scd = 0, pm25_sds = 0, pm10_sds = 0;
 float temp_bme = 0.0f, pres_bme = 0.0f, hum_bme = 0.0f, temp_scd = 0.0f,
-      hum_scd = 0.0f;
+      hum_scd = 0.0f, bat_lvl = 0.0f;
 byte sensor_data[DATA_LENGTH];  // = 18; 17 bytes + one byte for error check
 bool bme_status = true, scd_status = true, sds_status = true;
 
@@ -48,6 +52,8 @@ double last_send_time = 0;
 void setup() {
   Serial.begin(9600);   // serial port to computer
   Serial2.begin(9600);  // serial port to radio
+
+  pinMode(PA02, INPUT);
 
   Wire.begin();
 
@@ -190,6 +196,9 @@ void executeMeasurements() {
   // turn off sensors
   scd4x.powerDown();
   sds.sleep();
+
+  // Check battery level
+  bat_lvl = analogRead(PA02);
 }
 
 void formatData() {
@@ -198,7 +207,8 @@ void formatData() {
   // byte to 1
   // Else fill with measurements
 
-  uint16_t bme_temp, bme_hum, scd_temp, scd_hum, scd_co2, sds_pm25, sds_pm10;
+  uint16_t bme_temp, bme_hum, scd_temp, scd_hum, scd_co2, sds_pm25, sds_pm10,
+      lvl_bat;
   uint32_t bme_pres;
   byte error_byte = 0;
 
@@ -230,6 +240,13 @@ void formatData() {
     sds_pm10 = 0xFFFF;
   }
 
+  error_byte = !sds_status << 2 | !scd_status << 1 | !bme_status;
+  if (bat_lvl < 1000)
+    error_byte |= (1 << 3);
+
+  bat_lvl = mapf(val, 0, 1023, 0, 3.3);
+  lvl_bat = bat_lvl * 100;
+
   sensor_data[0] = (bme_temp >> 8) & 0xFF;
   sensor_data[1] = bme_temp & 0xFF;
   sensor_data[2] = (bme_pres >> 16) & 0xFF;
@@ -247,7 +264,10 @@ void formatData() {
   sensor_data[14] = sds_pm25 & 0xFF;
   sensor_data[15] = (sds_pm10 >> 8) & 0xFF;
   sensor_data[16] = sds_pm10 & 0xFF;
-  sensor_data[17] = error_byte;
+  sensor_data[17] = (lvl_bat >> 8) & 0xFF;
+  sensor_data[18] = lvl_bat & 0xFF;
+
+  sensor_data[DATA_LENGTH - 1] = error_byte;
 }
 
 void initialize_radio() {
@@ -404,4 +424,8 @@ void MCUsleep(int downtime) {
   RTC->MODE1.CTRL.bit.ENABLE = 0;
   // Wait for synchronization
   while (RTC->MODE1.STATUS.bit.SYNCBUSY) {};
+}
+
+float mapf(float x, float in_min, float in_max, float out_min, float out_max) {
+  return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
 }
