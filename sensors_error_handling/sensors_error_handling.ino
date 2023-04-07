@@ -7,8 +7,7 @@
 #define DATA_LENGTH 18
 
 /*
-  Vraag temp, pressure en humidity op van BME
-  en format als 5 bytes in een array meegegeven als parameter.
+
   | Byte nr | Name        | Sensor range     | On Node MCU | Reformat |
   | ------- | ----------- | ---------------- | ----------- | -------- |
   | 0-1     | Temperature | -40 tot 85°C     | +40 *10     | /100 -40 | - BME280
