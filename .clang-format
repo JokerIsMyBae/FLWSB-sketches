@@ -1,11 +1,11 @@
 ---
 Language: Cpp
 BasedOnStyle: LLVM
-IndentWidth: 4
+IndentWidth: 2
 AlignAfterOpenBracket: Align
-AllowShortBlocksOnASingleLine: false
-AllowShortCaseLabelsOnASingleLine: false
-AllowShortFunctionsOnASingleLine: false
+AllowShortBlocksOnASingleLine: true
+AllowShortCaseLabelsOnASingleLine: true
+AllowShortFunctionsOnASingleLine: true
 IndentCaseLabels: true
 SpacesBeforeTrailingComments: 2
 PointerAlignment: Left
