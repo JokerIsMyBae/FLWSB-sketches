@@ -101,8 +101,9 @@ void loop() {
                  14);  // give data and data length; check declaration
   double transmission = millis() - start;
   Serial.println(transmission);
-
+  myLora.sleep(SLEEPSECONDS);
   MCUsleep(SLEEPSECONDS);
+  myLora.autobaud();
 }
 
 bool bmeTimeout(uint32_t& timeout_start) {
@@ -244,7 +245,7 @@ void formatData() {
   if (bat_lvl < 1000)
     error_byte |= (1 << 3);
 
-  bat_lvl = mapf(val, 0, 1023, 0, 3.3);
+  bat_lvl = mapf(lvl_bat, 0, 1023, 0, 3.3);
   lvl_bat = bat_lvl * 100;
 
   sensor_data[0] = (bme_temp >> 8) & 0xFF;
