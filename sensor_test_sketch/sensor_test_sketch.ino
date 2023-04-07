@@ -24,7 +24,8 @@ const char* appKey = "B123E59E88F18F43892A258D6D73B9FD";
   | 13-14   | PM2.5       | 0 tot 999 μg/m   | *10         | /10      | - SDS011
   | 15-16   | PM10        | 0 tot 999 μg/m   | *10         | /10      | - SDS011
   | 17-18   | Battery V   | 0 tot 3.3V       | *100        | /100     |   n/a
-
+  | 19-26   | Latitude    |
+  | 27-34   | Longitude   |
   If battery level equals 3.3V, this means it is between 3.3V and 4.2V
 
   error byte
