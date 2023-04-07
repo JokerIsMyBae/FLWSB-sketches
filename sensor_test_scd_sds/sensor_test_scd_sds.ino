@@ -1,6 +1,6 @@
 #include "SdsDustSensor.h"
-#include <Adafruit_BME280.h>
-#include <Adafruit_Sensor.h>
+// #include <Adafruit_BME280.h>
+// #include <Adafruit_Sensor.h>
 #include <SensirionI2CScd4x.h>
 #include <Wire.h>
 #include <rn2xx3.h>
@@ -39,7 +39,7 @@ const char* appKey = "5E7773DF01C66243843429D3B38C5FCB";
 */
 
 SensirionI2CScd4x scd4x;
-Adafruit_BME280 bme;
+// Adafruit_BME280 bme;
 SdsDustSensor sds(Serial1);
 
 uint16_t co2_scd = 0, pm25_sds = 0, pm10_sds = 0;
