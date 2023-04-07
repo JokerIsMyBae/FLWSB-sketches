@@ -10,7 +10,7 @@
 int sleepseconds = 119;
 
 const char* appEui = "0000000000000000";
-const char* appKey = "5E7773DF01C66243843429D3B38C5FCB";
+const char* appKey = "B123E59E88F18F43892A258D6D73B9FD";
 
 /*
   Vraag temp, pressure en humidity op van BME
@@ -229,56 +229,57 @@ void formatData() {
 }
 
 void initialize_radio()
-// was pin 18
-// while(!Serial){}
-
 {
-    // reset rn2483
-    Serial.println("resetting lora");
-    pinMode(PA10, OUTPUT);
-    digitalWrite(PA10, LOW);
-    Serial.println("done resetting lora");
-    // ingestelde appKey en joinEUI
-    ;
-    // print appKey en joinEUI in serial monitor
-    Serial.print("appKey: ");
-    Serial.println(appKey);
-    Serial.println(appEui);
+  //reset rn2483
+  Serial.println("resetting lora");
+  pinMode(PA10, OUTPUT);
+  digitalWrite(PA10, LOW);
+  delay(1000);
+  digitalWrite(PA10, HIGH);
+  Serial.println("done resetting lora");
+  
+  // ingestelde appKey en joinEUI
+  Serial.print("appKey: ");
+  Serial.println(appKey);
+  Serial.print("joinEUI: ");
+  Serial.println(appEui);
+  delay(100); //wait for the RN2xx3's startup message
+  Serial2.flush();
 
-    delay(100);  // wait for the RN2xx3's startup message
-    Serial2.flush();
+  //Autobaud the rn2483 module to 9600. The default would otherwise be 57600.
+  myLora.autobaud();
 
-    // Autobaud the rn2483 module to 9600. The default would otherwise be 57600.
-    myLora.autobaud();
+  //check communication with radio
+  String hweui = myLora.hweui();
+  while(hweui.length() != 16)
+  {
+    Serial.println("Communication with RN2xx3 unsuccessful. Power cycle the board.");
+    Serial.println(hweui);
+    delay(10000);
+    hweui = myLora.hweui();
+  }
 
-    // check communication with radio
-    String hweui = myLora.hweui();
-    while (hweui.length() != 16) {
-        Serial.println(
-            "Communication with RN2xx3 unsuccessful. Power cycle the board.");
-        Serial.println(hweui);
-        delay(10000);
-        hweui = myLora.hweui();
-    }
+  //print out the HWEUI so that we can register it via ttnctl
+  Serial.println("When using OTAA, register this DevEUI: ");
+  Serial.println(myLora.hweui());
+  Serial.println("RN2xx3 firmware version:");
+  Serial.println(myLora.sysver());
 
-    // print out the HWEUI so that we can register it via ttnctl
-    Serial.println("When using OTAA, register this DevEUI: ");
-    Serial.println(myLora.hweui());
-    Serial.println("RN2xx3 firmware version:");
-    Serial.println(myLora.sysver());
+  //configure your keys and join the network
+  Serial.println("Trying to join TTN");
+  bool join_result = false;
 
-    // configure your keys and join the network
-    bool join_result = false;
+  join_result = myLora.initOTAA(appEui, appKey);
 
-    join_result = myLora.initOTAA(appEui, appKey);
-
-    // Loopt vast bij OTAA, uncomment voor ABP
-    while (!join_result) {
-        Serial.println("Unable to join. Are your keys correct, and do you have "
-                       "TTN coverage?");
-        delay(30000);  // delay a minute before retry
-        join_result = myLora.init();
-    }
+  // Loopt vast bij OTAA, uncomment voor ABP
+  while(!join_result)
+  {
+    Serial.println("Unable to join. Are your keys correct, and do you have TTN coverage?");
+    delay(30000); //delay a minute before retry
+    join_result = myLora.init();
+  }
+  Serial.println("Successfully joined TTN");
+  
 }
 
 void InitRTCInt() {
