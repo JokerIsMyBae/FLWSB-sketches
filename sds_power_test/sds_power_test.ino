@@ -26,9 +26,13 @@ void loop() {
     // turn off sensors
     scd4x.powerDown();
 
-    Serial.println(pm.pm25);
-    Serial.println();
-    Serial.println(pm.pm10);
+    if (sds_status) {
+        Serial.println(pm.pm25);
+        Serial.println();
+        Serial.println(pm.pm10);
+    } else {
+        Serial.println("SDS status not OK.");
+    }
 
     delay(30000);
 }
