@@ -199,7 +199,7 @@ void formatData() {
         sds_pm10 = 0xFFFF;
     }
 
-    error_byte = !sds_status | !scd_status << 3 | !bme_status << 7;
+    error_byte = !sds_status << 6 | !scd_status << 3 | !bme_status;
 
     sensor_data[0] = (bme_temp >> 8) & 0xFF;
     sensor_data[1] = bme_temp & 0xFF;
