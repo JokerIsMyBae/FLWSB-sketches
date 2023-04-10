@@ -348,15 +348,15 @@ void formatData() {
   sensor_data[18] = (lvl_bat >> 8) & 0xFF;
   sensor_data[19] = lvl_bat & 0xFF;
   
-  gps_float_to_bytes(lat, 20);
-  gps_float_to_bytes(lon, 28);
+  gps_double_to_bytes(&lat, 20);
+  gps_double_to_bytes(&lon, 28);
  
 }
 
-void gps_float_to_bytes(double gps_co, int start_index){
-  byte* ptr = (byte*)&gps_co;
-  for (int i= start_index; i < 8; i++){
-    sensor_data[start_index + i] = (ptr[8-i] >> (8*(8 - i))) & 0xFF;
+void gps_double_to_bytes(double* gps_co, int start_index){
+  for (int i=0; i < 8; i++){
+    byte* ptr = (byte*)&gps_co;  
+    sensor_data[start_index + i] = (ptr[7-i] >> (8*(8 - i))) & 0xFF;
   }
 
 }
