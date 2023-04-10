@@ -101,18 +101,18 @@ void loop() {
   }
 
   // send over LoRa
-  // Serial.println("TXing");
-  // double start = millis();
+  Serial.println("TXing");
+  double start = millis();
 
-  // // give data and data length; check declaration
-  // myLora.txBytes(sensor_data, DATA_LENGTH);
-  // double transmission = millis() - start;
-  // Serial.println(transmission);
+  // give data and data length; check declaration
+  myLora.txBytes(sensor_data, DATA_LENGTH);
+  double transmission = millis() - start;
+  Serial.println(transmission);
 
-  // myLora.sleep((SLEEPSECONDS + 1) * 1000);
-  // delay((SLEEPSECONDS + 1) * 1000);
+  myLora.sleep((SLEEPSECONDS + 1) * 1000);
+  delay((SLEEPSECONDS + 1) * 1000);
 
-  // myLora.autobaud();
+  myLora.autobaud();
 }
 
 void gpsSetup() {
@@ -133,7 +133,7 @@ void gpsSetup() {
       0x00,                    // reserved2
       0x00,                    // reserved3
       0x42, 0x40, 0x0F, 0x00,  // flags
-      0x00, 0x00, 0x00, 0x00,  // updatePeriod (in ms)
+      0x00, 0x00, 0x75, 0x30,  // updatePeriod (in ms)
       0x00, 0x00, 0x00, 0x00,  // searchPeriod (in ms)
       0x7D, 0x13, 0x00, 0x00,  // gridOffset (in ms)
       0x0A, 0x00,              // onTime (in s)
@@ -289,7 +289,7 @@ void formatData() {
 
   uint16_t bme_temp, bme_hum, scd_temp, scd_hum, scd_co2, sds_pm25, sds_pm10,
       lvl_bat;
-  uint32_t bme_pres;
+  uint32_t bme_pres, gy_lat = 0, gy_lon = 0;
   byte error_byte = 0;
 
   if (bme_status) {
@@ -313,10 +313,9 @@ void formatData() {
   }
 
   if (gps.location.isValid()) {
-    lat = (lat + 90 ) * 1000000;
-    lon = (lon + 180) * 1000000;
+    gy_lat = (lat + 90 ) * 1000000;
+    gy_lon = (lon + 180) * 1000000;
   }
-  
 
   sds_pm25 = 0xFFFF;
   sds_pm10 = 0xFFFF;
@@ -349,19 +348,25 @@ void formatData() {
   sensor_data[17] = sds_pm10 & 0xFF;
   sensor_data[18] = (lvl_bat >> 8) & 0xFF;
   sensor_data[19] = lvl_bat & 0xFF;
+  sensor_data[20] = (gy_lat >> 24) & 0xFF;
+  sensor_data[21] = (gy_lat >> 16) & 0xFF;
+  sensor_data[22] = (gy_lat >> 8) & 0xFF;
+  sensor_data[23] = gy_lat & 0xFF;   
+  sensor_data[24] = (gy_lon >> 24) & 0xFF;
+  sensor_data[25] = (gy_lon >> 16) & 0xFF;
+  sensor_data[26] = (gy_lon >> 8) & 0xFF;
+  sensor_data[27] = gy_lon & 0xFF;  
   
-  gps_double_to_bytes(&lat, 20);
-  gps_double_to_bytes(&lon, 28);
+  // gps_double_to_bytes(gy_lat, 20);
+  // gps_double_to_bytes(gy_lon, 24);
  
 }
 
-void gps_double_to_bytes(double* gps_co, int start_index){
-  for (int i=0; i < 8; i++){
-    byte* ptr = (byte*)&gps_co;  
-    sensor_data[start_index + i] = (*(ptr+i)) & 0xFF;
-  }
-
-}
+// void gps_double_to_bytes(uint32_t gps_co, int start_index){
+//   for (int i = 0; i < 4; i++) {
+//     sensor_data[start_index + i] = (gps_co >> (8*(4-i))) & 0xFF;
+//   }
+// }
 
 void initialize_radio() {
   // reset rn2483
