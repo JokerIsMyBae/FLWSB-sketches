@@ -5,7 +5,7 @@
 #include <Wire.h>
 #include <rn2xx3.h>
 
-#define DATA_LENGTH 20
+#define DATA_LENGTH 36
 #define SLEEPSECONDS 29
 
 const char* appEui = "0000000000000000";
@@ -82,7 +82,7 @@ void setup() {
 
   Serial.println("Startup LoRa");
 
-  initialize_radio();
+  //initialize_radio();
   
 }
 
@@ -96,22 +96,23 @@ void loop() {
 
   // printing data (optional)
   for (int i = 0; i < DATA_LENGTH; i++) {
-    Serial.println(sensor_data[i], HEX);
+    Serial.print(i); Serial.print(": ");
+    Serial.println(sensor_data[i],HEX);
   }
 
   // send over LoRa
-  Serial.println("TXing");
-  double start = millis();
+  // Serial.println("TXing");
+  // double start = millis();
 
-  // give data and data length; check declaration
-  myLora.txBytes(sensor_data, DATA_LENGTH);
-  double transmission = millis() - start;
-  Serial.println(transmission);
+  // // give data and data length; check declaration
+  // myLora.txBytes(sensor_data, DATA_LENGTH);
+  // double transmission = millis() - start;
+  // Serial.println(transmission);
 
-  myLora.sleep((SLEEPSECONDS + 1) * 1000);
-  delay((SLEEPSECONDS + 1) * 1000);
+  // myLora.sleep((SLEEPSECONDS + 1) * 1000);
+  // delay((SLEEPSECONDS + 1) * 1000);
 
-  myLora.autobaud();
+  // myLora.autobaud();
 }
 
 void gpsSetup() {
@@ -349,18 +350,13 @@ void formatData() {
   
   gps_float_to_bytes(lat, 20);
   gps_float_to_bytes(lon, 28);
-
-  for (int i; i < DATA_LENGTH - 1; i ++){
-    Serial.print(i); Serial.print(": ");
-    Serial.println(sensor_data[i]);
-  }
-  
+ 
 }
 
 void gps_float_to_bytes(double gps_co, int start_index){
   byte* ptr = (byte*)&gps_co;
   for (int i= start_index; i < 8; i++){
-    sensor_data[start_index + i] = (ptr[8-i] >> (8*(8 - i))) && 0xFF;
+    sensor_data[start_index + i] = (ptr[8-i] >> (8*(8 - i))) & 0xFF;
   }
 
 }
