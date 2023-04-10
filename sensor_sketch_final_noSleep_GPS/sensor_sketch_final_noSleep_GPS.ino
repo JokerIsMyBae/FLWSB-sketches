@@ -5,30 +5,30 @@
 #include <Wire.h>
 #include <rn2xx3.h>
 
-#define DATA_LENGTH 36
+#define DATA_LENGTH 28
 #define SLEEPSECONDS 29
 
 const char* appEui = "0000000000000000";
-const char* appKey = "0BCEC12E4AEFE30F4E336184C1263975";
+const char* appKey = "B123E59E88F18F43892A258D6D73B9FD";
 
 /*
 
-  | Byte nr | Name        | Sensor range         | On Node MCU | Reformat |
-  | ------- | ----------- | -------------------- | ----------- | -------- |
-  | 0       | Error byte  | n/a                  | n/a         | n/a      | n/a
-  | 1-2     | Temperature | -40 tot 85°C         | +40 *10     | /100 -40 | - BME280
-  | 3-5     | Pressure    | 300 tot 1100 hPa     | *100        | /100     | - BME280
-  | 6-7     | Humidity    | 0 tot 100%           | *100        | /100     | - BME280
-  | 8-9     | Temperature | -10 tot 60°C         | +10 *100    | /100 -10 | - SCD41
-  | 10-11   | co2         | 400 tot 5000 ppm     | *100        | /100     | - SCD41
-  | 12-13   | Humidity    | 0 tot 95 %           | *100        | /100     | - SCD41
-  | 14-15   | PM2.5       | 0 tot 999 μg/m       | *10         | /10      | - SDS011
-  | 16-17   | PM10        | 0 tot 999 μg/m       | *10         | /10      | - SDS011
-  | 18-19   | Battery V   | 0 tot 3.3V           | *100        | /100     | n/a
-  | 20-27   | Latitude    | -90 tot 90 (float)   |             |          | - GY-NEO6MV2
-  | 28-35   | Longitude   | -180 tot 180 (float) |             |          | - GY-NEO6MV2
+  | Byte nr | Name        | Sensor range         | On Node MCU | Reformat  |
+  | ------- | ----------- | -------------------- | ----------- | --------- |
+  | 0       | Error byte  | n/a                  | n/a         | n/a       | n/a
+  | 1-2     | Temperature | -40 tot 85°C         | +40 *10     | /100 -40  | - BME280
+  | 3-5     | Pressure    | 300 tot 1100 hPa     | *100        | /100      | - BME280
+  | 6-7     | Humidity    | 0 tot 100%           | *100        | /100      | - BME280
+  | 8-9     | Temperature | -10 tot 60°C         | +10 *100    | /100 -10  | - SCD41
+  | 10-11   | co2         | 400 tot 5000 ppm     | *100        | /100      | - SCD41
+  | 12-13   | Humidity    | 0 tot 95 %           | *100        | /100      | - SCD41
+  | 14-15   | PM2.5       | 0 tot 999 μg/m       | *10         | /10       | - SDS011
+  | 16-17   | PM10        | 0 tot 999 μg/m       | *10         | /10       | - SDS011
+  | 18-19   | Battery V   | 0 tot 3.3V           | *100        | /100      | n/a
+  | 20-23   | Latitude    | -90 tot 90 (float)   | +90 * 1M    | /1M - 90  | - GY-NEO6MV2
+  | 24-27   | Longitude   | -180 tot 180 (float) | +180 * 1M   | /1M - 180 | - GY-NEO6MV2
 
-  If battery level equals 3.3V, this means it is between 3.3V and 4.2V
+  If battery level equals 3.3V, this means it is between 3.3V and 3.7V
 
   error byte
   bit 4 = 1 -> GY-NEO not responding
@@ -356,17 +356,8 @@ void formatData() {
   sensor_data[25] = (gy_lon >> 16) & 0xFF;
   sensor_data[26] = (gy_lon >> 8) & 0xFF;
   sensor_data[27] = gy_lon & 0xFF;  
-  
-  // gps_double_to_bytes(gy_lat, 20);
-  // gps_double_to_bytes(gy_lon, 24);
  
 }
-
-// void gps_double_to_bytes(uint32_t gps_co, int start_index){
-//   for (int i = 0; i < 4; i++) {
-//     sensor_data[start_index + i] = (gps_co >> (8*(4-i))) & 0xFF;
-//   }
-// }
 
 void initialize_radio() {
   // reset rn2483
