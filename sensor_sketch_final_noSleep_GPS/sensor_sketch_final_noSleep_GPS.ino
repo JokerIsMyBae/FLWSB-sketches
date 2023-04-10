@@ -9,7 +9,7 @@
 #define SLEEPSECONDS 29
 
 const char* appEui = "0000000000000000";
-const char* appKey = "B123E59E88F18F43892A258D6D73B9FD";
+const char* appKey = "0BCEC12E4AEFE30F4E336184C1263975";
 
 /*
 
@@ -21,8 +21,8 @@ const char* appKey = "B123E59E88F18F43892A258D6D73B9FD";
   | 6-7     | Humidity    | 0 tot 100%           | *100        | /100      | - BME280
   | 8-9     | Temperature | -10 tot 60°C         | +10 *100    | /100 -10  | - SCD41
   | 10-11   | co2         | 400 tot 5000 ppm     | *100        | /100      | - SCD41
-  | 12-13   | Humidity    | 0 tot 95 %           | *100        | /100      | - SCD41
-  | 14-15   | PM2.5       | 0 tot 999 μg/m       | *10         | /10       | - SDS011
+  | 12-13   | Humidity    | 0 tot 95 %           | *100        | /100| - SCD41
+  | 14-15   | PM2.5       | 0 tot 999 μg/m       | *10         | /10             | - SDS011
   | 16-17   | PM10        | 0 tot 999 μg/m       | *10         | /10       | - SDS011
   | 18-19   | Battery V   | 0 tot 3.3V           | *100        | /100      | n/a
   | 20-23   | Latitude    | -90 tot 90 (float)   | +90 * 1M    | /1M - 90  | - GY-NEO6MV2
@@ -82,7 +82,7 @@ void setup() {
 
   Serial.println("Startup LoRa");
 
-  //initialize_radio();
+  initialize_radio();
   
 }
 
@@ -271,8 +271,6 @@ void executeMeasurements() {
   if (gps.location.isValid()) {
     lat = gps.location.lat(); 
     lon = gps.location.lng();
-    Serial.print("lat: "); Serial.println(lat);
-    Serial.print("lon: "); Serial.println(lon);
   } else {
     gps_status = false;
   }
@@ -312,9 +310,12 @@ void formatData() {
     scd_co2 = 0xFFFF;
   }
 
-  if (gps.location.isValid()) {
+  if (gps_status) {
     gy_lat = (lat + 90 ) * 1000000;
     gy_lon = (lon + 180) * 1000000;
+  } else {
+    gy_lat = 0xFFFFFFFF;
+    gy_lon = 0xFFFFFFFF;
   }
 
   sds_pm25 = 0xFFFF;
