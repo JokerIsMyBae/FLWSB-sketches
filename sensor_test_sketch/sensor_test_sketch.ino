@@ -13,23 +13,26 @@ const char* appKey = "B123E59E88F18F43892A258D6D73B9FD";
 
 /*
 
-  | Byte nr | Name        | Sensor range     | On Node MCU | Reformat |
-  | ------- | ----------- | ---------------- | ----------- | -------- |
-  | 0-1     | Temperature | -40 tot 85°C     | +40 *10     | /100 -40 | - BME280
-  | 2-4     | Pressure    | 300 tot 1100 hPa | *100        | /100     | - BME280
-  | 5-6     | Humidity    | 0 tot 100%       | *100        | /100     | - BME280
-  | 7-8     | Temperature | -10 tot 60°C     | +10 *100    | /100 -10 | - SCD41
-  | 9-10    | co2         | 400 tot 5000 ppm | *100        | /100     | - SCD41
-  | 11-12   | Humidity    | 0 tot 95 %       | *100        | /100     | - SCD41
-  | 13-14   | PM2.5       | 0 tot 999 μg/m   | *10         | /10      | - SDS011
-  | 15-16   | PM10        | 0 tot 999 μg/m   | *10         | /10      | - SDS011
-  | 17-18   | Battery V   | 0 tot 3.3V       | *100        | /100     |   n/a
-  | 19-26   | Latitude    |
-  | 27-34   | Longitude   |
+  | Byte nr | Name        | Sensor range         | On Node MCU | Reformat |
+  | ------- | ----------- | -------------------- | ----------- | -------- |
+  | 0       | Error byte  | n/a                  | n/a         | n/a      | n/a
+  | 1-2     | Temperature | -40 tot 85°C         | +40 *10     | /100 -40 | - BME280
+  | 3-5     | Pressure    | 300 tot 1100 hPa     | *100        | /100     | - BME280
+  | 6-7     | Humidity    | 0 tot 100%           | *100        | /100     | - BME280
+  | 8-9     | Temperature | -10 tot 60°C         | +10 *100    | /100 -10 | - SCD41
+  | 10-11   | co2         | 400 tot 5000 ppm     | *100        | /100     | - SCD41
+  | 12-13   | Humidity    | 0 tot 95 %           | *100        | /100     | - SCD41
+  | 14-15   | PM2.5       | 0 tot 999 μg/m       | *10         | /10      | - SDS011
+  | 16-17   | PM10        | 0 tot 999 μg/m       | *10         | /10      | - SDS011
+  | 18-19   | Battery V   | 0 tot 3.3V           | *100        | /100     | n/a
+  | 20-27   | Latitude    | -90 tot 90 (float)   |             |          | - GY-NEO6MV2
+  | 28-35   | Longitude   | -180 tot 180 (float) |             |          | - GY-NEO6MV2
+  
   If battery level equals 3.3V, this means it is between 3.3V and 4.2V
 
   error byte
-  bit 3 = 1 -> battery under 3.3V
+  bit 4 = 1 -> GY-NEO not responding
+  bit 3 = 1 -> battery lvl under 3.3V
   bit 2 = 1 -> SDS not responding
   bit 1 = 1 -> SCD not responding
   bit 0 = 1 -> BME not responding
@@ -43,7 +46,7 @@ SdsDustSensor sds(Serial1);
 uint16_t co2_scd = 0, pm25_sds = 0, pm10_sds = 0;
 float temp_bme = 0.0f, pres_bme = 0.0f, hum_bme = 0.0f, temp_scd = 0.0f,
       hum_scd = 0.0f, bat_lvl = 0.0f;
-byte sensor_data[DATA_LENGTH];  // = 18; 17 bytes + one byte for error check
+byte sensor_data[DATA_LENGTH];  // = 20; 19 bytes + one byte for error check
 bool bme_status = true, scd_status = true, sds_status = true;
 
 // LoRa variables
@@ -54,13 +57,19 @@ void setup() {
   Serial.begin(9600);   // serial port to computer
   Serial2.begin(9600);  // serial port to radio
 
+  // Connected with BAT, analogRead() for bat lvl
   pinMode(PA02, INPUT);
+
+  // PA03 = EN(able) of solar power manager; needs to be high
+  pinMode(PA03, OUTPUT);
+  digitalWrite(PA03, HIGH);
 
   Wire.begin();
 
   // Initialize sensors
   scd4x.begin(Wire);
   bme_status = bme.begin();
+  sds.begin();
   sds.setQueryReportingMode();
 
   if (bme_status) {
@@ -84,7 +93,7 @@ void setup() {
 void loop() {
 
   // measurements
-  sensor_data[DATA_LENGTH - 1] = 0;  // clear all errors
+  sensor_data[0] = 0;  // clear all errors
   executeMeasurements();
 
   formatData();
@@ -97,22 +106,25 @@ void loop() {
   // send over LoRa
   Serial.println("TXing");
   double start = millis();
-
-  myLora.txBytes(sensor_data,
-                 14);  // give data and data length; check declaration
+  
+  // give data and data length; check declaration
+  myLora.txBytes(sensor_data,DATA_LENGTH);
   double transmission = millis() - start;
   Serial.println(transmission);
-  myLora.sleep(SLEEPSECONDS);
+  
+  myLora.sleep(SLEEPSECONDS*1000);
   MCUsleep(SLEEPSECONDS);
+  
   myLora.autobaud();
 }
 
 bool bmeTimeout(uint32_t& timeout_start) {
   timeout_start = millis();
+  
   while (bme.isMeasuring()) {
-    if ((millis() - timeout_start) > 2000) {
+    if ((millis() - timeout_start) > 2000)
       return false;
-    }
+      
     delay(1);
   }
   return true;
@@ -129,7 +141,7 @@ void executeMeasurements() {
   // Sleep mcu for 25s
   MCUsleep(24);
 
-  // Wake up scd to get measurements at the same time as sds
+  // Wake up scd now to get measurements at the same time as sds
   error = scd4x.wakeUp();
   if (error)
     scd_status = false;
@@ -153,7 +165,7 @@ void executeMeasurements() {
   if (bme_status) {
     bme_status = bme.takeForcedMeasurement();
 
-    // if forced measurement has started, time out until data is ready.
+    // if forced measurement has begun, time out until data is ready.
     if (bme_status)
       bme_status = bmeTimeout(timeout_start);
   }
@@ -165,9 +177,9 @@ void executeMeasurements() {
     hum_bme = bme.readHumidity();
 
     // if the data wasn't correct it returns NaN
-    if (isnan(temp_bme) || isnan(pres_bme) || isnan(hum_bme)) {
+    if (isnan(temp_bme) || isnan(pres_bme) || isnan(hum_bme))
       bme_status = false;
-    }
+    
   }
 
   // measureSingleShot needs delay of 5000ms to wait for measurements
@@ -249,27 +261,28 @@ void formatData() {
   bat_lvl = mapf(lvl_bat, 0, 1023, 0, 3.3);
   lvl_bat = bat_lvl * 100;
 
-  sensor_data[0] = (bme_temp >> 8) & 0xFF;
-  sensor_data[1] = bme_temp & 0xFF;
-  sensor_data[2] = (bme_pres >> 16) & 0xFF;
-  sensor_data[3] = (bme_pres >> 8) & 0xFF;
-  sensor_data[4] = bme_pres & 0xFF;
-  sensor_data[5] = (bme_hum >> 8) & 0xFF;
-  sensor_data[6] = bme_hum & 0xFF;
-  sensor_data[7] = (scd_temp >> 8) & 0xFF;
-  sensor_data[8] = scd_temp & 0xFF;
-  sensor_data[9] = (scd_co2 >> 8) & 0xFF;
-  sensor_data[10] = scd_co2 & 0xFF;
-  sensor_data[11] = (scd_hum >> 8) & 0xFF;
-  sensor_data[12] = scd_hum & 0xFF;
-  sensor_data[13] = (sds_pm25 >> 8) & 0xFF;
-  sensor_data[14] = sds_pm25 & 0xFF;
-  sensor_data[15] = (sds_pm10 >> 8) & 0xFF;
-  sensor_data[16] = sds_pm10 & 0xFF;
-  sensor_data[17] = (lvl_bat >> 8) & 0xFF;
-  sensor_data[18] = lvl_bat & 0xFF;
+  sensor_data[0] = error_byte;
 
-  sensor_data[DATA_LENGTH - 1] = error_byte;
+  sensor_data[1] = (bme_temp >> 8) & 0xFF;
+  sensor_data[2] = bme_temp & 0xFF;
+  sensor_data[3] = (bme_pres >> 16) & 0xFF;
+  sensor_data[4] = (bme_pres >> 8) & 0xFF;
+  sensor_data[5] = bme_pres & 0xFF;
+  sensor_data[6] = (bme_hum >> 8) & 0xFF;
+  sensor_data[7] = bme_hum & 0xFF;
+  sensor_data[8] = (scd_temp >> 8) & 0xFF;
+  sensor_data[9] = scd_temp & 0xFF;
+  sensor_data[10] = (scd_co2 >> 8) & 0xFF;
+  sensor_data[11] = scd_co2 & 0xFF;
+  sensor_data[12] = (scd_hum >> 8) & 0xFF;
+  sensor_data[13] = scd_hum & 0xFF;
+  sensor_data[14] = (sds_pm25 >> 8) & 0xFF;
+  sensor_data[15] = sds_pm25 & 0xFF;
+  sensor_data[16] = (sds_pm10 >> 8) & 0xFF;
+  sensor_data[17] = sds_pm10 & 0xFF;
+  sensor_data[18] = (lvl_bat >> 8) & 0xFF;
+  sensor_data[19] = lvl_bat & 0xFF;
+  
 }
 
 void initialize_radio() {
