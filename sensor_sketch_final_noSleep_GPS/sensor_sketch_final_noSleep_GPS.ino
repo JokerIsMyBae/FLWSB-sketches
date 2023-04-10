@@ -1,7 +1,7 @@
-#include "SdsDustSensor.h"
 #include <Adafruit_BME280.h>
 #include <Adafruit_Sensor.h>
 #include <SensirionI2CScd4x.h>
+#include <TinyGPS++.h>
 #include <Wire.h>
 #include <rn2xx3.h>
 
@@ -27,7 +27,7 @@ const char* appKey = "5E7773DF01C66243843429D3B38C5FCB";
   | 18-19   | Battery V   | 0 tot 3.3V           | *100        | /100     | n/a
   | 20-27   | Latitude    | -90 tot 90 (float)   |             |          | - GY-NEO6MV2
   | 28-35   | Longitude   | -180 tot 180 (float) |             |          | - GY-NEO6MV2
-  
+
   If battery level equals 3.3V, this means it is between 3.3V and 4.2V
 
   error byte
@@ -41,13 +41,13 @@ const char* appKey = "5E7773DF01C66243843429D3B38C5FCB";
 
 SensirionI2CScd4x scd4x;
 Adafruit_BME280 bme;
-SdsDustSensor sds(Serial1);
+TinyGPSPlus gps;
 
-uint16_t co2_scd = 0, pm25_sds = 0, pm10_sds = 0;
+uint16_t co2_scd = 0;
 float temp_bme = 0.0f, pres_bme = 0.0f, hum_bme = 0.0f, temp_scd = 0.0f,
       hum_scd = 0.0f, bat_lvl = 0.0f;
 byte sensor_data[DATA_LENGTH];  // = 20; 19 bytes + one byte for error check
-bool bme_status = true, scd_status = true, sds_status = true;
+bool bme_status = true, scd_status = true, gps_status = true;
 
 // LoRa variables
 rn2xx3 myLora(Serial2);
@@ -55,6 +55,7 @@ double last_send_time = 0;
 
 void setup() {
   Serial.begin(9600);   // serial port to computer
+  Serial1.begin(9600);  // serial port to GPS
   Serial2.begin(9600);  // serial port to radio
 
   // Connected with BAT, analogRead() for bat lvl
@@ -69,8 +70,7 @@ void setup() {
   // Initialize sensors
   scd4x.begin(Wire);
   bme_status = bme.begin();
-  sds.begin();
-  sds.setQueryReportingMode();
+  gpsSetup();
 
   if (bme_status) {
     delay(10);  // bme startup time
@@ -81,11 +81,10 @@ void setup() {
 
   Serial.println("Startup LoRa");
 
-  initialize_radio(); 
+  initialize_radio();
 
   // transmit a startup message
   myLora.tx("TTN Mapper on TTN Enschede node");
-
 }
 
 void loop() {
@@ -104,25 +103,93 @@ void loop() {
   // send over LoRa
   Serial.println("TXing");
   double start = millis();
-  
+
   // give data and data length; check declaration
   myLora.txBytes(sensor_data, DATA_LENGTH);
   double transmission = millis() - start;
   Serial.println(transmission);
-  
+
   myLora.sleep((SLEEPSECONDS + 1) * 1000);
   delay((SLEEPSECONDS + 1) * 1000);
-  
+
   myLora.autobaud();
+}
+
+void gpsSetup() {
+  // Construct UBX-CFG-RXM message payload
+  byte payload[] = {0x02, 0x08, 0x01};
+
+  // the complete message
+  byte message[] = {0xB5, 0x62, 0x06, 0x11, 0x02, 0x08, 0x01};
+
+  byte pm2_message[] = {
+      0xB5, 0x62,  // Header
+      0x06, 0x3B,  // Class and ID
+      0x2C,        // Length of message (44)
+
+      // Payload
+      0x00,                    // version
+      0x00,                    // reserved1
+      0x00,                    // reserved2
+      0x00,                    // reserved3
+      0x42, 0x40, 0x0F, 0x00,  // flags
+      0x00, 0x00, 0x00, 0x00,  // updatePeriod (in ms)
+      0x00, 0x00, 0x00, 0x00,  // searchPeriod (in ms)
+      0x7D, 0x13, 0x00, 0x00,  // gridOffset (in ms)
+      0x0A, 0x00,              // onTime (in s)
+      0x05, 0x00,              // minAcqTime (in s)
+      0x00, 0x00,              // reserved4
+      0x00, 0x00,              // reserved5
+      0x00, 0x00, 0x00, 0x00,  // reserved6
+      0x00, 0x00, 0x00, 0x00,  // reserved7
+      0x00,                    // reserved8
+      0x00,                    // reserved9
+      0x00, 0x00,              // reserved10
+      0x00, 0x00, 0x00, 0x00   // reserved11
+  };
+
+  // Calculate message checksum
+  byte ck_a = 0, ck_b = 0;
+  for (int i = 0; i < sizeof(message); i++) {
+    ck_a += message[i];
+    ck_b += ck_a;
+  }
+
+  // Construct full UBX-CFG-RXM message with checksum
+  message[sizeof(message)] = ck_a;
+  message[sizeof(message) + 1] = ck_b;
+
+  // Calculate pm2_message checksum
+  ck_a = 0, ck_b = 0;
+  for (int i = 0; i < sizeof(pm2_message); i++) {
+    ck_a += pm2_message[i];
+    ck_b += ck_a;
+  }
+
+  // Construct full UBX-CFG-RXM message with checksum
+  pm2_message[sizeof(pm2_message)] = ck_a;
+  pm2_message[sizeof(pm2_message) + 1] = ck_b;
+
+  // Send message to GPS module via UART
+  for (int i = 0; i < sizeof(message); i++) {
+    Serial1.write(message[i]);
+  }
+
+  delay(1000);
+
+  // Send pm2_message to GPS module via UART
+  for (int i = 0; i < sizeof(pm2_message); i++) {
+    Serial1.write(pm2_message[i]);
+  }
 }
 
 bool bmeTimeout(uint32_t& timeout_start) {
   timeout_start = millis();
-  
+
   while (bme.isMeasuring()) {
     if ((millis() - timeout_start) > 2000)
       return false;
-      
+
     delay(1);
   }
   return true;
@@ -135,15 +202,8 @@ void executeMeasurements() {
 
   bme_status = true;
   scd_status = true;
-  sds_status = true;
 
-  // Wake-up sds
-  sds.wakeup();
-
-  // Delay mcu for 25s
-  delay(25000);
-
-  // Wake up scd now to get measurements at the same time as sds
+  // Wake up scd
   error = scd4x.wakeUp();
   if (error)
     scd_status = false;
@@ -181,7 +241,6 @@ void executeMeasurements() {
     // if the data wasn't correct it returns NaN
     if (isnan(temp_bme) || isnan(pres_bme) || isnan(hum_bme))
       bme_status = false;
-    
   }
 
   // measureSingleShot needs delay of 5000ms to wait for measurements
@@ -200,18 +259,21 @@ void executeMeasurements() {
   if (error)
     scd_status = false;
 
-  // request measurement results from sds
-  PmResult pm = sds.queryPm();
-  if (!pm.isOk()) {
-    sds_status = false;
-  } else {
-    pm25_sds = pm.pm25;
-    pm10_sds = pm.pm10;
-  }
-
   // turn off sensors
   scd4x.powerDown();
-  sds.sleep();
+
+  // Read GPS data
+  while (Serial1.available()) {
+    gps.encode(Serial1.read());
+  }
+
+  // Print GPS data if valid
+  if (gps.location.isValid()) {
+    gps.location.lat();
+    gps.location.lng();
+  } else {
+    gps_status = false;
+  }
 
   // Check battery level
   bat_lvl = analogRead(PA02);
@@ -248,15 +310,10 @@ void formatData() {
     scd_co2 = 0xFFFF;
   }
 
-  if (sds_status) {
-    sds_pm25 = pm25_sds * 10;
-    sds_pm10 = pm10_sds * 10;
-  } else {
-    sds_pm25 = 0xFFFF;
-    sds_pm10 = 0xFFFF;
-  }
+  sds_pm25 = 0xFFFF;
+  sds_pm10 = 0xFFFF;
 
-  error_byte = !sds_status << 2 | !scd_status << 1 | !bme_status;
+  error_byte = !gps_status << 4 | 1 << 2 | !scd_status << 1 | !bme_status;
   if (bat_lvl < 1000)
     error_byte |= (1 << 3);
 
@@ -284,7 +341,6 @@ void formatData() {
   sensor_data[17] = sds_pm10 & 0xFF;
   sensor_data[18] = (lvl_bat >> 8) & 0xFF;
   sensor_data[19] = lvl_bat & 0xFF;
-  
 }
 
 void initialize_radio() {
