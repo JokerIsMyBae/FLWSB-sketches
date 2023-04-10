@@ -9,7 +9,7 @@
 #define SLEEPSECONDS 29
 
 const char* appEui = "0000000000000000";
-const char* appKey = "5E7773DF01C66243843429D3B38C5FCB";
+const char* appKey = "0BCEC12E4AEFE30F4E336184C1263975";
 
 /*
 
@@ -46,6 +46,7 @@ TinyGPSPlus gps;
 uint16_t co2_scd = 0;
 float temp_bme = 0.0f, pres_bme = 0.0f, hum_bme = 0.0f, temp_scd = 0.0f,
       hum_scd = 0.0f, bat_lvl = 0.0f;
+double lat, lon;      
 byte sensor_data[DATA_LENGTH];  // = 20; 19 bytes + one byte for error check
 bool bme_status = true, scd_status = true, gps_status = true;
 
@@ -82,9 +83,7 @@ void setup() {
   Serial.println("Startup LoRa");
 
   initialize_radio();
-
-  // transmit a startup message
-  myLora.tx("TTN Mapper on TTN Enschede node");
+  
 }
 
 void loop() {
@@ -269,8 +268,8 @@ void executeMeasurements() {
 
   // Print GPS data if valid
   if (gps.location.isValid()) {
-    gps.location.lat();
-    gps.location.lng();
+    lat = gps.location.lat(); 
+    lon = gps.location.lng();
   } else {
     gps_status = false;
   }
@@ -310,6 +309,12 @@ void formatData() {
     scd_co2 = 0xFFFF;
   }
 
+  if (gps.location.isValid()) {
+    lat = (lat + 90 ) * 1000000;
+    lon = (lon + 180) * 1000000;
+  }
+  
+
   sds_pm25 = 0xFFFF;
   sds_pm10 = 0xFFFF;
 
@@ -341,6 +346,23 @@ void formatData() {
   sensor_data[17] = sds_pm10 & 0xFF;
   sensor_data[18] = (lvl_bat >> 8) & 0xFF;
   sensor_data[19] = lvl_bat & 0xFF;
+  
+  gps_float_to_bytes(lat, 20);
+  gps_float_to_bytes(lon, 28);
+
+  for (int i; i < DATA_LENGTH - 1; i ++){
+    Serial.print(i); Serial.print(": ");
+    Serial.println(sensor_data[i]);
+  }
+  
+}
+
+void gps_float_to_bytes(double gps_co, int start_index){
+  byte* ptr = (byte*)&gps_co;
+  for (int i= start_index; i < 8; i++){
+    sensor_data[start_index + i] = (ptr[8-i] >> (8*(8 - i))) && 0xFF;
+  }
+
 }
 
 void initialize_radio() {
