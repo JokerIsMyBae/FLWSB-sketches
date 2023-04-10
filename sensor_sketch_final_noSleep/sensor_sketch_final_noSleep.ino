@@ -106,7 +106,7 @@ void loop() {
   double start = millis();
   
   // give data and data length; check declaration
-  myLora.txBytes(sensor_data,DATA_LENGTH);
+  myLora.txBytes(sensor_data, DATA_LENGTH);
   double transmission = millis() - start;
   Serial.println(transmission);
   
@@ -137,7 +137,7 @@ void executeMeasurements() {
   scd_status = true;
   sds_status = true;
 
-  // Wake-up sequence sensors
+  // Wake-up sds
   sds.wakeup();
 
   // Delay mcu for 25s
@@ -260,7 +260,7 @@ void formatData() {
   if (bat_lvl < 1000)
     error_byte |= (1 << 3);
 
-  bat_lvl = mapf(lvl_bat, 0, 1023, 0, 3.3);
+  bat_lvl = mapf(bat_lvl, 0, 1023, 0, 3.3);
   lvl_bat = bat_lvl * 100;
 
   sensor_data[0] = error_byte;
