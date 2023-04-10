@@ -271,6 +271,8 @@ void executeMeasurements() {
   if (gps.location.isValid()) {
     lat = gps.location.lat(); 
     lon = gps.location.lng();
+    Serial.print("lat: "); Serial.println(lat);
+    Serial.print("lon: "); Serial.println(lon);
   } else {
     gps_status = false;
   }
@@ -356,7 +358,7 @@ void formatData() {
 void gps_double_to_bytes(double* gps_co, int start_index){
   for (int i=0; i < 8; i++){
     byte* ptr = (byte*)&gps_co;  
-    sensor_data[start_index + i] = (ptr[7-i] >> (8*(8 - i))) & 0xFF;
+    sensor_data[start_index + i] = (*(ptr+i)) & 0xFF;
   }
 
 }
