@@ -6,10 +6,10 @@
 #include <rn2xx3.h>
 
 #define DATA_LENGTH 20
-#define SLEEPSECONDS 29
+#define SLEEPSECONDS 600
 
 const char* appEui = "0000000000000000";
-const char* appKey = "5E7773DF01C66243843429D3B38C5FCB";
+const char* appKey = "A1CD8983FA771390C1D83E81F7FD8810";
 
 /*
 

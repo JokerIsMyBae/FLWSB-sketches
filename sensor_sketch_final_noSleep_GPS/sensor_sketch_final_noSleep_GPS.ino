@@ -6,7 +6,7 @@
 #include <rn2xx3.h>
 
 #define DATA_LENGTH 28
-#define SLEEPSECONDS 29
+#define SLEEPSECONDS 600
 
 const char* appEui = "0000000000000000";
 const char* appKey = "0BCEC12E4AEFE30F4E336184C1263975";
@@ -21,8 +21,8 @@ const char* appKey = "0BCEC12E4AEFE30F4E336184C1263975";
   | 6-7     | Humidity    | 0 tot 100%           | *100        | /100      | - BME280
   | 8-9     | Temperature | -10 tot 60°C         | +10 *100    | /100 -10  | - SCD41
   | 10-11   | co2         | 400 tot 5000 ppm     | *100        | /100      | - SCD41
-  | 12-13   | Humidity    | 0 tot 95 %           | *100        | /100| - SCD41
-  | 14-15   | PM2.5       | 0 tot 999 μg/m       | *10         | /10             | - SDS011
+  | 12-13   | Humidity    | 0 tot 95 %           | *100        | /100      | - SCD41
+  | 14-15   | PM2.5       | 0 tot 999 μg/m       | *10         | /10       | - SDS011
   | 16-17   | PM10        | 0 tot 999 μg/m       | *10         | /10       | - SDS011
   | 18-19   | Battery V   | 0 tot 3.3V           | *100        | /100      | n/a
   | 20-23   | Latitude    | -90 tot 90 (float)   | +90 * 1M    | /1M - 90  | - GY-NEO6MV2
@@ -109,8 +109,8 @@ void loop() {
   double transmission = millis() - start;
   Serial.println(transmission);
 
-  myLora.sleep((SLEEPSECONDS + 1) * 1000);
-  delay((SLEEPSECONDS + 1) * 1000);
+  myLora.sleep(SLEEPSECONDS * 1000);
+  delay(SLEEPSECONDS * 1000);
 
   myLora.autobaud();
 }
